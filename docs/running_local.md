@@ -23,11 +23,25 @@ The current version of the environment requires `go`, `docker` and `docker-compo
 - <https://www.docker.com/get-started>
 - <https://docs.docker.com/compose/install/>
 
-The `zkevm-node` docker image must be built at least once and every time a change is made to the code.
+The `zkevm-node` and `geth-zkevm-contracts` docker images must be built at least once and every time a change is made to the code.
 If you haven't build the `zkevm-node` image yet, you must run:
 
 ```bash
 make build-docker
+```
+
+If you haven't built the `geth-zkevm-contracts` docker images yet, you must get a checkout of the `zkevm-contracts` repo if you haven't already:
+
+```bash
+git clone git@github.com:EspressoSystems/zkevm-contracts.git
+```
+
+Then enter the `zkevm-contracts` repo and build its docker image:
+
+```bash
+cd zkevm-contracts
+npm i
+npm run docker:contracts
 ```
 
 ## A look at how the binary works:
