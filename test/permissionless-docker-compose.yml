@@ -7,7 +7,7 @@ services:
   # TODO: remove this and use the permissionless sequencer
   zkevm-sequencer:
     container_name: zkevm-sequencer
-    image: ghcr.io/espressosystems/zkevm-node/zkevm-node
+    image: ghcr.io/espressosystems/zkevm-node:hotshot-integration
     ports:
       - 9092:9091 # needed if metrics enabled
     environment:
@@ -22,14 +22,14 @@ services:
       - "-c"
       - "/app/zkevm-node run --genesis /app/genesis.json --cfg /app/config.toml --components sequencer"
     depends_on:
-      zkevm-state-db:
-        condition: service_healthy
-      zkevm-pool-db:
-        condition: service_healthy
+      zkevm-sync: # synchronizer runs state DB migrations
+        condition: service_started
+      zkevm-json-rpc: # let the JSON rpc run the pool DB migrations
+        condition: service_started
 
   zkevm-json-rpc:
     container_name: zkevm-json-rpc
-    image: ghcr.io/espressosystems/zkevm-node/zkevm-node
+    image: ghcr.io/espressosystems/zkevm-node:hotshot-integration
     ports:
       - 8123:8123
       - 8133:8133 # needed if WebSockets enabled
@@ -49,14 +49,14 @@ services:
     depends_on:
       zkevm-mock-l1-network:
         condition: service_started
-      zkevm-state-db:
-        condition: service_healthy
+      zkevm-sync: # synchronizer runs state DB migrations
+        condition: service_started
       zkevm-pool-db:
         condition: service_healthy
 
   # zkevm-non-sequencer-json-rpc:
   #   container_name: zkevm-non-sequencer-json-rpc
-  #   image: ghcr.io/espressosystems/zkevm-node/zkevm-node
+  #   image: ghcr.io/espressosystems/zkevm-node:hotshot-integration
   #   ports:
   #     - 8125:8125
   #   environment:
@@ -77,7 +77,7 @@ services:
 
   zkevm-aggregator:
     container_name: zkevm-aggregator
-    image: ghcr.io/espressosystems/zkevm-node/zkevm-node
+    image: ghcr.io/espressosystems/zkevm-node:hotshot-integration
     ports:
       - 50081:50081
       - 9093:9091 # needed if metrics enabled
@@ -92,13 +92,12 @@ services:
       - "-c"
       - "/app/zkevm-node run --genesis /app/genesis.json --cfg /app/config.toml --components aggregator"
     depends_on:
-      zkevm-state-db:
-        condition: service_healthy
+      - zkevm-sync # zkevm-sync runs state DB migrations
 
 
   zkevm-sync:
     container_name: zkevm-sync
-    image: ghcr.io/espressosystems/zkevm-node/zkevm-node
+    image: ghcr.io/espressosystems/zkevm-node:hotshot-integration
     environment:
       - ZKEVM_NODE_STATEDB_HOST=zkevm-state-db
     volumes:
@@ -117,7 +116,7 @@ services:
 
   # zkevm-broadcast:
   #   container_name: zkevm-broadcast
-  #   image: ghcr.io/espressosystems/zkevm-node/zkevm-node
+  #   image: ghcr.io/espressosystems/zkevm-node:hotshot-integration
   #   environment:
   #     - ZKEVM_NODE_STATEDB_HOST=zkevm-state-db
   #   ports:
@@ -153,7 +152,7 @@ services:
       - POSTGRES_DB=state_db
     command: ["postgres", "-N", "500"]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready"]
+      test: ["CMD-SHELL", "pg_isready", "-U", "state_user"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -182,7 +181,7 @@ services:
 
   zkevm-mock-l1-network:
     container_name: zkevm-mock-l1-network
-    image: ghcr.io/espressosystems/zkevm-contracts/geth-zkevm-contracts
+    image: ghcr.io/espressosystems/geth-zkevm-contracts:hotshot-integration
     ports:
       - 8545:8545
       - 8546:8546
@@ -200,6 +199,8 @@ services:
       - ./config/test.prover.config.json:/usr/src/app/config.json
     command: >
       zkProver -c /usr/src/app/config.json
+    depends_on:
+      - zkevm-sync # zkevm-sync runs state DB migrations
 
   # zkevm-permissionless-db:
   #   container_name: zkevm-permissionless-db
@@ -220,7 +221,7 @@ services:
 
   # zkevm-permissionless-node:
   #   container_name: zkevm-permissionless-node
-  #   image: ghcr.io/espressosystems/zkevm-node/zkevm-node
+  #   image: ghcr.io/espressosystems/zkevm-node:hotshot-integration
   #   ports:
   #     - 8126:8126
   #   environment:
