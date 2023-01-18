@@ -55,9 +55,9 @@ services:
         condition: service_healthy
     healthcheck:
       # curl not installed in container, but wget is
-      test: ["CMD-SHELL", "wget", "http://localhost:8123", "-q", "-O", "/dev/null"]
-      interval: 10s
-      timeout: 5s
+      test: "wget http://localhost:8123 -q --spider --tries 1 || exit 1"
+      interval: 2s
+      timeout: 1s
       retries: 5
 
   # zkevm-non-sequencer-json-rpc:
