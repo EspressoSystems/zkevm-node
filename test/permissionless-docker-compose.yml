@@ -25,7 +25,7 @@ services:
       zkevm-sync: # synchronizer runs state DB migrations
         condition: service_started
       zkevm-json-rpc: # let the JSON rpc run the pool DB migrations
-        condition: service_started
+        condition: service_healthy
 
   zkevm-json-rpc:
     container_name: zkevm-json-rpc
@@ -53,6 +53,12 @@ services:
         condition: service_started
       zkevm-pool-db:
         condition: service_healthy
+    healthcheck:
+      # curl not installed in container, but wget is
+      test: ["CMD-SHELL", "wget", "http://localhost:8123", "-q", "-O", "/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # zkevm-non-sequencer-json-rpc:
   #   container_name: zkevm-non-sequencer-json-rpc
