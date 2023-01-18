@@ -3,6 +3,7 @@ on:
     branches:
     - main
     - ci
+    - hotshot-integration
   workflow_dispatch:
 
 jobs:
