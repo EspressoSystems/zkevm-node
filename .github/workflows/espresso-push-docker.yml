@@ -35,7 +35,7 @@ jobs:
 
       - name: Build and push
         id: docker_build
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         with:
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
@@ -50,7 +50,7 @@ jobs:
 
       - name: Build and push zkevmprovermock
         id: docker_build_zkevmprovermock
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         with:
           context: .
           file: tools/zkevmprovermock/Dockerfile
