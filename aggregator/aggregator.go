@@ -307,10 +307,9 @@ func (a *Aggregator) buildFinalProof(ctx context.Context, prover proverInterface
 // build the final proof.  If no proof is provided it looks for a previously
 // generated proof.  If the proof is eligible, then the final proof generation
 // is triggered.
-func (a *Aggregator) tryBuildFinalProof(ctx context.Context, prover proverInterface, proof *state.Proof) (bool, error) {
+func (a *Aggregator) tryBuildFinalProof(ctx context.Context, prover proverInterface, proof *state.Proof) (proofBuilt bool, err error) {
 	log.Debugf("tryBuildFinalProof start prover { ID [%s], addr [%s] }", prover.ID(), prover.Addr())
 
-	var err error
 	if !a.canVerifyProof() {
 		log.Debug("Time to verify proof not reached")
 		return false, nil
@@ -318,7 +317,7 @@ func (a *Aggregator) tryBuildFinalProof(ctx context.Context, prover proverInterf
 	log.Debug("Send final proof time reached")
 
 	defer func() {
-		if err != nil {
+		if !proofBuilt {
 			a.enableProofVerification()
 		}
 	}()
