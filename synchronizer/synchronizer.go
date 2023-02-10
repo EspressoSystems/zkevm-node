@@ -32,6 +32,7 @@ type ClientSynchronizer struct {
 	isTrustedSequencer bool
 	etherMan           ethermanInterface
 	state              stateInterface
+	ethTxManager       ethTxManager
 	ctx                context.Context
 	cancelCtx          context.CancelFunc
 	genesis            state.Genesis
@@ -43,6 +44,7 @@ func NewSynchronizer(
 	isTrustedSequencer bool,
 	ethMan ethermanInterface,
 	st stateInterface,
+	ethTxManager ethTxManager,
 	genesis state.Genesis,
 	cfg Config) (Synchronizer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -53,6 +55,7 @@ func NewSynchronizer(
 		etherMan:           ethMan,
 		ctx:                ctx,
 		cancelCtx:          cancel,
+		ethTxManager:       ethTxManager,
 		genesis:            genesis,
 		cfg:                cfg,
 	}, nil
@@ -175,7 +178,7 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 
 	for {
 		toBlock := fromBlock + s.cfg.SyncChunkSize
-
+		log.Infof("Syncing block %d of %d", fromBlock, lastKnownBlock.Uint64())
 		log.Infof("Getting rollup info from block %d to block %d", fromBlock, toBlock)
 		// This function returns the rollup information contained in the ethereum blocks and an extra param called order.
 		// Order param is a map that contains the event order to allow the synchronizer store the info in the same order that is readed.
@@ -415,6 +418,16 @@ func (s *ClientSynchronizer) resetState(blockNumber uint64) error {
 			return rollbackErr
 		}
 		log.Error("error resetting the state. Error: ", err)
+		return err
+	}
+	err = s.ethTxManager.Reorg(s.ctx, blockNumber+1, dbTx)
+	if err != nil {
+		rollbackErr := dbTx.Rollback(s.ctx)
+		if rollbackErr != nil {
+			log.Errorf("error rolling back eth tx manager when reorg detected. BlockNumber: %d, rollbackErr: %s, error : %w", blockNumber, rollbackErr.Error(), err)
+			return rollbackErr
+		}
+		log.Error("error processing reorg on eth tx manager. Error: ", err)
 		return err
 	}
 	err = dbTx.Commit(s.ctx)
@@ -908,6 +921,7 @@ func (s *ClientSynchronizer) processTrustedVerifyBatches(lastVerifiedBatch ether
 			Aggregator:  lastVerifiedBatch.Aggregator,
 			StateRoot:   lastVerifiedBatch.StateRoot,
 			TxHash:      lastVerifiedBatch.TxHash,
+			IsTrusted:   true,
 		}
 		err = s.state.AddVerifiedBatch(s.ctx, &verifiedB, dbTx)
 		if err != nil {

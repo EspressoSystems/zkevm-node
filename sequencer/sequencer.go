@@ -19,12 +19,11 @@ import (
 type Sequencer struct {
 	cfg Config
 
-	pool      txPool
-	state     stateInterface
-	txManager txManager
-	etherman  etherman
-	checker   *profitabilitychecker.Checker
-	gpe       gasPriceEstimator
+	pool         txPool
+	state        stateInterface
+	ethTxManager ethTxManager
+	etherman     etherman
+	checker      *profitabilitychecker.Checker
 
 	address common.Address
 
@@ -38,8 +37,7 @@ func New(
 	state stateInterface,
 	etherman etherman,
 	priceGetter priceGetter,
-	manager txManager,
-	gpe gasPriceEstimator) (*Sequencer, error) {
+	manager ethTxManager) (*Sequencer, error) {
 	checker := profitabilitychecker.New(cfg.ProfitabilityChecker, etherman, priceGetter)
 
 	addr, err := etherman.TrustedSequencer()
@@ -49,14 +47,13 @@ func New(
 	// TODO: check that private key used in etherman matches addr
 
 	return &Sequencer{
-		cfg:       cfg,
-		pool:      txPool,
-		state:     state,
-		etherman:  etherman,
-		checker:   checker,
-		txManager: manager,
-		gpe:       gpe,
-		address:   addr,
+		cfg:          cfg,
+		pool:         txPool,
+		state:        state,
+		etherman:     etherman,
+		checker:      checker,
+		ethTxManager: manager,
+		address:      addr,
 	}, nil
 }
 
@@ -210,6 +207,7 @@ func (s *Sequencer) loadSequenceFromState(ctx context.Context) error {
 		s.sequenceInProgress = types.Sequence{
 			GlobalExitRoot: processingCtx.GlobalExitRoot,
 			Timestamp:      processingCtx.Timestamp.Unix(),
+			BatchNumber:    processingCtx.BatchNumber,
 		}
 	} else {
 		txs, err := s.state.GetTransactionsByBatchNumber(ctx, lastBatch.BatchNumber, nil)
@@ -220,6 +218,7 @@ func (s *Sequencer) loadSequenceFromState(ctx context.Context) error {
 			GlobalExitRoot: lastBatch.GlobalExitRoot,
 			Timestamp:      lastBatch.Timestamp.Unix(),
 			Txs:            txs,
+			BatchNumber:    lastBatch.BatchNumber,
 		}
 		// TODO: execute to get state root and LER or change open/closed logic so we always store state root and LER and add an open flag
 	}
@@ -259,5 +258,6 @@ func (s *Sequencer) createFirstBatch(ctx context.Context) {
 		GlobalExitRoot: processingCtx.GlobalExitRoot,
 		Timestamp:      processingCtx.Timestamp.Unix(),
 		Txs:            []ethTypes.Transaction{},
+		BatchNumber:    processingCtx.BatchNumber,
 	}
 }

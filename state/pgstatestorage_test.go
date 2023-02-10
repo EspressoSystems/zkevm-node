@@ -82,7 +82,7 @@ func TestGetBatchByL2BlockNumber(t *testing.T) {
 
 	err = pgStateStorage.AddL2Block(ctx, batchNumber, l2Block, receipts, dbTx)
 	require.NoError(t, err)
-	result, err := pgStateStorage.GetBatchNumberOfL2Block(ctx, l2Block.Number().Uint64(), dbTx)
+	result, err := pgStateStorage.BatchNumberByL2BlockNumber(ctx, l2Block.Number().Uint64(), dbTx)
 	require.NoError(t, err)
 	assert.Equal(t, batchNumber, result)
 	require.NoError(t, dbTx.Commit(ctx))
@@ -235,6 +235,7 @@ func TestVerifiedBatch(t *testing.T) {
 		StateRoot:   common.HexToHash("0x29e885edaf8e4b51e1d2e05f9da28161d2fb4f6b1d53827d9b80a23cf2d7d9f2"),
 		Aggregator:  common.HexToAddress("0x29e885edaf8e4b51e1d2e05f9da28161d2fb4f6b1d53827d9b80a23cf2d7d9f1"),
 		TxHash:      common.HexToHash("0x29e885edaf8e4b51e1d2e05f9da28161d2fb4f6b1d53827d9b80a23cf2d7d9f1"),
+		IsTrusted:   true,
 	}
 	err = testState.AddVerifiedBatch(ctx, &expectedVerifiedBatch, dbTx)
 	require.NoError(t, err)
@@ -246,4 +247,77 @@ func TestVerifiedBatch(t *testing.T) {
 	require.Equal(t, expectedVerifiedBatch, *actualVerifiedBatch)
 
 	require.NoError(t, dbTx.Commit(ctx))
+}
+
+func TestCleanupLockedProofs(t *testing.T) {
+	require := require.New(t)
+	assert := assert.New(t)
+	initOrResetDB()
+	ctx := context.Background()
+	batchNumber := uint64(42)
+	_, err = testState.PostgresStorage.Exec(ctx, "INSERT INTO state.batch (batch_num) VALUES ($1), ($2), ($3)", batchNumber, batchNumber+1, batchNumber+2)
+	require.NoError(err)
+	const addGeneratedProofSQL = "INSERT INTO state.proof (batch_num, batch_num_final, proof, proof_id, input_prover, prover, prover_id, generating_since, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+	// proof with `generating_since` older than interval
+	now := time.Now().Round(time.Microsecond)
+	oneHourAgo := now.Add(-time.Hour).Round(time.Microsecond)
+	olderProofID := "olderProofID"
+	olderProof := state.Proof{
+		ProofID:          &olderProofID,
+		BatchNumber:      batchNumber,
+		BatchNumberFinal: batchNumber,
+		GeneratingSince:  &oneHourAgo,
+	}
+	_, err := testState.PostgresStorage.Exec(ctx, addGeneratedProofSQL, olderProof.BatchNumber, olderProof.BatchNumberFinal, olderProof.Proof, olderProof.ProofID, olderProof.InputProver, olderProof.Prover, olderProof.ProverID, olderProof.GeneratingSince, oneHourAgo, oneHourAgo)
+	require.NoError(err)
+	// proof with `generating_since` newer than interval
+	newerProofID := "newerProofID"
+	newerProof := state.Proof{
+		ProofID:          &newerProofID,
+		BatchNumber:      batchNumber + 1,
+		BatchNumberFinal: batchNumber + 1,
+		GeneratingSince:  &now,
+		CreatedAt:        oneHourAgo,
+		UpdatedAt:        now,
+	}
+	_, err = testState.PostgresStorage.Exec(ctx, addGeneratedProofSQL, newerProof.BatchNumber, newerProof.BatchNumberFinal, newerProof.Proof, newerProof.ProofID, newerProof.InputProver, newerProof.Prover, newerProof.ProverID, newerProof.GeneratingSince, oneHourAgo, now)
+	require.NoError(err)
+	// proof with `generating_since` nil (currently not generating)
+	olderNotGenProofID := "olderNotGenProofID"
+	olderNotGenProof := state.Proof{
+		ProofID:          &olderNotGenProofID,
+		BatchNumber:      batchNumber + 2,
+		BatchNumberFinal: batchNumber + 2,
+		CreatedAt:        oneHourAgo,
+		UpdatedAt:        oneHourAgo,
+	}
+	_, err = testState.PostgresStorage.Exec(ctx, addGeneratedProofSQL, olderNotGenProof.BatchNumber, olderNotGenProof.BatchNumberFinal, olderNotGenProof.Proof, olderNotGenProof.ProofID, olderNotGenProof.InputProver, olderNotGenProof.Prover, olderNotGenProof.ProverID, olderNotGenProof.GeneratingSince, oneHourAgo, oneHourAgo)
+	require.NoError(err)
+
+	_, err = testState.CleanupLockedProofs(ctx, "1m", nil)
+
+	require.NoError(err)
+	rows, err := testState.PostgresStorage.Query(ctx, "SELECT batch_num, batch_num_final, proof, proof_id, input_prover, prover, prover_id, generating_since, created_at, updated_at FROM state.proof")
+	require.NoError(err)
+	proofs := make([]state.Proof, 0, len(rows.RawValues()))
+	for rows.Next() {
+		var proof state.Proof
+		err := rows.Scan(
+			&proof.BatchNumber,
+			&proof.BatchNumberFinal,
+			&proof.Proof,
+			&proof.ProofID,
+			&proof.InputProver,
+			&proof.Prover,
+			&proof.ProverID,
+			&proof.GeneratingSince,
+			&proof.CreatedAt,
+			&proof.UpdatedAt,
+		)
+		require.NoError(err)
+		proofs = append(proofs, proof)
+	}
+	assert.Len(proofs, 2)
+	assert.Contains(proofs, olderNotGenProof)
+	assert.Contains(proofs, newerProof)
 }

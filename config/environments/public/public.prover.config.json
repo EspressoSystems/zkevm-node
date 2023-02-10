@@ -61,7 +61,6 @@
 
     "inputFile": "input_executor.json",
     "outputPath": "output",
-    "romFile": "rom.json",
     "cmPolsFile_disabled": "zkevm.commit",
     "cmPolsFileC12a_disabled": "zkevm.c12a.commit",
     "cmPolsFileRecursive1_disabled": "zkevm.recursive1.commit",
@@ -90,7 +89,6 @@
     "keccakScriptFile": "keccak_script.json",
     "keccakPolsFile_DISABLED": "keccak_pols.json",
     "keccakConnectionsFile": "keccak_connections.json",
-    "storageRomFile": "storage_sm_rom.json",
     "starkInfoFile": "zkevm.starkinfo.json",
     "starkInfoC12aFile": "zkevm.c12a.starkinfo.json",
     "starkInfoRecursive1File": "zkevm.recursive1.starkinfo.json",

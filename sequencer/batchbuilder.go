@@ -58,8 +58,8 @@ func (s *Sequencer) tryToProcessTx(ctx context.Context, ticker *time.Ticker) {
 
 	getTxsLimit := s.cfg.MaxTxsPerBatch - uint64(len(s.sequenceInProgress.Txs))
 
-	minGasPrice, err := s.gpe.GetAvgGasPrice(ctx)
-	metrics.AverageGasPrice(float64(minGasPrice.Uint64()))
+	minGasPrice, err := s.pool.GetGasPrice(ctx)
+	metrics.AverageGasPrice(float64(minGasPrice))
 	if err != nil {
 		log.Errorf("failed to get avg gas price, err: %w", err)
 		return
@@ -67,7 +67,7 @@ func (s *Sequencer) tryToProcessTx(ctx context.Context, ticker *time.Ticker) {
 
 	// get txs from the pool
 	appendedClaimsTxsAmount := s.appendPendingTxs(ctx, true, 0, getTxsLimit, ticker)
-	appendedTxsAmount := s.appendPendingTxs(ctx, false, minGasPrice.Uint64(), getTxsLimit-appendedClaimsTxsAmount, ticker) + appendedClaimsTxsAmount
+	appendedTxsAmount := s.appendPendingTxs(ctx, false, minGasPrice, getTxsLimit-appendedClaimsTxsAmount, ticker) + appendedClaimsTxsAmount
 
 	if appendedTxsAmount == 0 {
 		return
@@ -352,6 +352,7 @@ func (s *Sequencer) newSequence(ctx context.Context) (types.Sequence, error) {
 		GlobalExitRoot: processingCtx.GlobalExitRoot,
 		Timestamp:      processingCtx.Timestamp.Unix(),
 		Txs:            []ethTypes.Transaction{},
+		BatchNumber:    processingCtx.BatchNumber,
 	}, nil
 }
 
@@ -394,7 +395,7 @@ func (s *Sequencer) processTxs(ctx context.Context) (processTxResponse, error) {
 			)
 			return processTxResponse{}, err
 		}
-		log.Errorf("failed processing batch, err: %w", err)
+		log.Errorf("failed processing batch, err: %v", err)
 		return processTxResponse{}, err
 	}
 
@@ -550,6 +551,7 @@ func (s *Sequencer) backupSequence() types.Sequence {
 		StateRoot:      s.sequenceInProgress.StateRoot,
 		LocalExitRoot:  s.sequenceInProgress.LocalExitRoot,
 		Timestamp:      s.sequenceInProgress.Timestamp,
+		BatchNumber:    s.sequenceInProgress.BatchNumber,
 	}
 
 	copy(backupSequence.Txs, s.sequenceInProgress.Txs)

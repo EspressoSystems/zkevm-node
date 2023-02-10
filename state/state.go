@@ -267,6 +267,7 @@ func (s *State) EstimateGas(transaction *types.Transaction, senderAddress common
 			Coinbase:         lastBatch.Coinbase.String(),
 			UpdateMerkleTree: cFalse,
 			ChainId:          s.cfg.ChainID,
+			ForkId:           s.cfg.CurrentForkID,
 		}
 
 		log.Debugf("EstimateGas[processBatchRequest.OldBatchNum]: %v", processBatchRequest.OldBatchNum)
@@ -279,25 +280,24 @@ func (s *State) EstimateGas(transaction *types.Transaction, senderAddress common
 		log.Debugf("EstimateGas[processBatchRequest.Coinbase]: %v", processBatchRequest.Coinbase)
 		log.Debugf("EstimateGas[processBatchRequest.UpdateMerkleTree]: %v", processBatchRequest.UpdateMerkleTree)
 		log.Debugf("EstimateGas[processBatchRequest.ChainId]: %v", processBatchRequest.ChainId)
+		log.Debugf("EstimateGas[processBatchRequest.ForkId]: %v", processBatchRequest.ForkId)
 
 		txExecutionOnExecutorTime := time.Now()
 		processBatchResponse, err := s.executorClient.ProcessBatch(ctx, processBatchRequest)
 		gasUsed = processBatchResponse.Responses[0].GasUsed
 		log.Debugf("executor time: %vms", time.Since(txExecutionOnExecutorTime).Milliseconds())
 		if err != nil {
-			log.Errorf("error processing gas estimation ", err)
+			log.Errorf("error estimating gas: %v", err)
+			return false, false, gasUsed, err
+		} else if processBatchResponse.Error != executor.EXECUTOR_ERROR_NO_ERROR {
+			err = executor.ExecutorErr(processBatchResponse.Error)
+			s.LogExecutorError(processBatchResponse.Error, processBatchRequest)
 			return false, false, gasUsed, err
 		}
 
-		if executor.IsOutOfCountersError(processBatchResponse.Error) {
-			log.Errorf("ROM OOC error processing gas estimation ", executor.Err(processBatchResponse.Error))
-			s.LogROMOutOfCountersError(processBatchResponse.Error, processBatchRequest)
-			return false, false, gasUsed, executor.Err(processBatchResponse.Error)
-		}
-
 		// Check if an out of gas error happened during EVM execution
-		if processBatchResponse.Responses[0].Error != pb.Error(executor.ERROR_NO_ERROR) {
-			err := executor.Err(processBatchResponse.Responses[0].Error)
+		if processBatchResponse.Responses[0].Error != pb.RomError(executor.ROM_ERROR_NO_ERROR) {
+			err := executor.RomErr(processBatchResponse.Responses[0].Error)
 
 			if (isGasEVMError(err) || isGasApplyError(err)) && shouldOmitErr {
 				// Specifying the transaction failed, but not providing an error
@@ -446,12 +446,7 @@ func (s *State) ProcessSequencerBatch(
 	if err != nil {
 		return nil, err
 	}
-
-	if executor.IsOutOfCountersError(processBatchResponse.Error) {
-		return nil, executor.Err(processBatchResponse.Error)
-	}
-
-	result, err := convertToProcessBatchResponse(txs, processBatchResponse)
+	result, err := s.convertToProcessBatchResponse(txs, processBatchResponse)
 	if err != nil {
 		return nil, err
 	}
@@ -478,6 +473,8 @@ func (s *State) ExecuteBatch(ctx context.Context, batchNumber uint64, batchL2Dat
 		return nil, err
 	}
 
+	forkId := s.GetForkIdByBatchNumber(batchNumber)
+
 	// Create Batch
 	processBatchRequest := &pb.ProcessBatchRequest{
 		OldBatchNum:      lastBatch.BatchNumber - 1,
@@ -489,12 +486,16 @@ func (s *State) ExecuteBatch(ctx context.Context, batchNumber uint64, batchL2Dat
 		EthTimestamp:     uint64(lastBatch.Timestamp.Unix()),
 		UpdateMerkleTree: cFalse,
 		ChainId:          s.cfg.ChainID,
+		ForkId:           forkId,
 	}
 
 	processBatchResponse, err := s.executorClient.ProcessBatch(ctx, processBatchRequest)
 
-	if executor.IsOutOfCountersError(processBatchResponse.Error) {
-		s.LogROMOutOfCountersError(processBatchResponse.Error, processBatchRequest)
+	if err != nil {
+		if processBatchResponse.Error != executor.EXECUTOR_ERROR_NO_ERROR {
+			err = executor.ExecutorErr(processBatchResponse.Error)
+			s.LogExecutorError(processBatchResponse.Error, processBatchRequest)
+		}
 	}
 
 	return processBatchResponse, err
@@ -547,6 +548,7 @@ func (s *State) processBatch(
 		EthTimestamp:     uint64(lastBatch.Timestamp.Unix()),
 		UpdateMerkleTree: cTrue,
 		ChainId:          s.cfg.ChainID,
+		ForkId:           s.cfg.CurrentForkID,
 	}
 
 	// Send Batch to the Executor
@@ -560,17 +562,19 @@ func (s *State) processBatch(
 	log.Debugf("processBatch[processBatchRequest.Coinbase]: %v", processBatchRequest.Coinbase)
 	log.Debugf("processBatch[processBatchRequest.UpdateMerkleTree]: %v", processBatchRequest.UpdateMerkleTree)
 	log.Debugf("processBatch[processBatchRequest.ChainId]: %v", processBatchRequest.ChainId)
+	log.Debugf("processBatch[processBatchRequest.ForkId]: %v", processBatchRequest.ForkId)
 	now := time.Now()
 	res, err := s.executorClient.ProcessBatch(ctx, processBatchRequest)
-
-	// Check OOC in the executor ROM
-	if executor.IsOutOfCountersError(res.Error) {
-		s.LogROMOutOfCountersError(res.Error, processBatchRequest)
+	if err != nil {
+		log.Errorf("Error s.executorClient.ProcessBatch: %v", err)
+		log.Errorf("Error s.executorClient.ProcessBatch: %s", err.Error())
+		log.Errorf("Error s.executorClient.ProcessBatch response: %v", res)
+	} else if res.Error != executor.EXECUTOR_ERROR_NO_ERROR {
+		err = executor.ExecutorErr(res.Error)
+		s.LogExecutorError(res.Error, processBatchRequest)
 	}
 
-	elapsed := time.Since(now)
-	metrics.ExecutorProcessingTime(string(caller), elapsed)
-	log.Infof("It took %v for the executor to process the request", elapsed)
+	log.Infof("Batch: %d. It took %v for the executor to process the request", batchNumber, time.Since(now))
 	return res, err
 }
 
@@ -612,7 +616,7 @@ func (s *State) StoreTransactions(ctx context.Context, batchNumber uint64, proce
 		// if the transaction has an intrinsic invalid tx error it means
 		// the transaction has not changed the state, so we don't store it
 		// and just move to the next
-		if executor.IsIntrinsicError(executor.ErrorCode(processedTx.Error)) {
+		if executor.IsIntrinsicError(executor.RomErrorCode(processedTx.RomError)) {
 			continue
 		}
 
@@ -777,37 +781,33 @@ func (s *State) ProcessAndStoreClosedBatch(
 		return err
 	}
 
-	if executor.IsOutOfCountersError(processed.Error) {
-		processed.Responses = []*pb.ProcessTransactionResponse{}
-	} else {
-		// Sanity check
-		if len(decodedTransactions) != len(processed.Responses) {
-			log.Errorf("number of decoded (%d) and processed (%d) transactions do not match", len(decodedTransactions), len(processed.Responses))
-		}
+	// Sanity check
+	if len(decodedTransactions) != len(processed.Responses) {
+		log.Errorf("number of decoded (%d) and processed (%d) transactions do not match", len(decodedTransactions), len(processed.Responses))
+	}
 
-		// Filter unprocessed txs and decode txs to store metadata
-		// note that if the batch is not well encoded it will result in an empty batch (with no txs)
-		for i := 0; i < len(processed.Responses); i++ {
-			if !isProcessed(processed.Responses[i].Error) {
-				if executor.IsOutOfCountersError(processed.Responses[i].Error) {
-					processed.Responses = []*pb.ProcessTransactionResponse{}
-					break
-				}
-
-				// Remove unprocessed tx
-				if i == len(processed.Responses)-1 {
-					processed.Responses = processed.Responses[:i]
-					decodedTransactions = decodedTransactions[:i]
-				} else {
-					processed.Responses = append(processed.Responses[:i], processed.Responses[i+1:]...)
-					decodedTransactions = append(decodedTransactions[:i], decodedTransactions[i+1:]...)
-				}
-				i--
+	// Filter unprocessed txs and decode txs to store metadata
+	// note that if the batch is not well encoded it will result in an empty batch (with no txs)
+	for i := 0; i < len(processed.Responses); i++ {
+		if !isProcessed(processed.Responses[i].Error) {
+			if executor.IsROMOutOfCountersError(processed.Responses[i].Error) {
+				processed.Responses = []*pb.ProcessTransactionResponse{}
+				break
 			}
+
+			// Remove unprocessed tx
+			if i == len(processed.Responses)-1 {
+				processed.Responses = processed.Responses[:i]
+				decodedTransactions = decodedTransactions[:i]
+			} else {
+				processed.Responses = append(processed.Responses[:i], processed.Responses[i+1:]...)
+				decodedTransactions = append(decodedTransactions[:i], decodedTransactions[i+1:]...)
+			}
+			i--
 		}
 	}
 
-	processedBatch, err := convertToProcessBatchResponse(decodedTransactions, processed)
+	processedBatch, err := s.convertToProcessBatchResponse(decodedTransactions, processed)
 	if err != nil {
 		return err
 	}
@@ -880,6 +880,8 @@ func (s *State) DebugTransaction(ctx context.Context, transactionHash common.Has
 		}
 	}
 
+	forkId := s.GetForkIdByBatchNumber(batch.BatchNumber)
+
 	// Create Batch
 	processBatchRequest := &pb.ProcessBatchRequest{
 		OldBatchNum:                  batch.BatchNumber - 1,
@@ -893,6 +895,7 @@ func (s *State) DebugTransaction(ctx context.Context, transactionHash common.Has
 		TxHashToGenerateCallTrace:    transactionHash.Bytes(),
 		TxHashToGenerateExecuteTrace: transactionHash.Bytes(),
 		ChainId:                      s.cfg.ChainID,
+		ForkId:                       forkId,
 	}
 
 	// Send Batch to the Executor
@@ -900,13 +903,11 @@ func (s *State) DebugTransaction(ctx context.Context, transactionHash common.Has
 	processBatchResponse, err := s.executorClient.ProcessBatch(ctx, processBatchRequest)
 	if err != nil {
 		return nil, err
+	} else if processBatchResponse.Error != executor.EXECUTOR_ERROR_NO_ERROR {
+		err = executor.ExecutorErr(processBatchResponse.Error)
+		s.LogExecutorError(processBatchResponse.Error, processBatchRequest)
+		return nil, err
 	}
-
-	if executor.IsOutOfCountersError(processBatchResponse.Error) {
-		s.LogROMOutOfCountersError(processBatchResponse.Error, processBatchRequest)
-		return nil, executor.Err(processBatchResponse.Error)
-	}
-
 	endTime := time.Now()
 
 	txs, _, err := DecodeTxs(batchL2Data)
@@ -918,7 +919,7 @@ func (s *State) DebugTransaction(ctx context.Context, transactionHash common.Has
 		log.Debugf(tx.Hash().String())
 	}
 
-	convertedResponse, err := convertToProcessBatchResponse(txs, processBatchResponse)
+	convertedResponse, err := s.convertToProcessBatchResponse(txs, processBatchResponse)
 	if err != nil {
 		return nil, err
 	}
@@ -1182,6 +1183,7 @@ func (s *State) ProcessUnsignedTransaction(ctx context.Context, tx *types.Transa
 		Coinbase:         lastBatch.Coinbase.String(),
 		UpdateMerkleTree: cFalse,
 		ChainId:          s.cfg.ChainID,
+		ForkId:           s.cfg.CurrentForkID,
 	}
 
 	if noZKEVMCounters {
@@ -1198,6 +1200,7 @@ func (s *State) ProcessUnsignedTransaction(ctx context.Context, tx *types.Transa
 	log.Debugf("ProcessUnsignedTransaction[processBatchRequest.Coinbase]: %v", processBatchRequest.Coinbase)
 	log.Debugf("ProcessUnsignedTransaction[processBatchRequest.UpdateMerkleTree]: %v", processBatchRequest.UpdateMerkleTree)
 	log.Debugf("ProcessUnsignedTransaction[processBatchRequest.ChainId]: %v", processBatchRequest.ChainId)
+	log.Debugf("ProcessUnsignedTransaction[processBatchRequest.ForkId]: %v", processBatchRequest.ForkId)
 
 	// Send Batch to the Executor
 	processBatchResponse, err := s.executorClient.ProcessBatch(ctx, processBatchRequest)
@@ -1205,16 +1208,14 @@ func (s *State) ProcessUnsignedTransaction(ctx context.Context, tx *types.Transa
 		log.Errorf("error processing unsigned transaction ", err)
 		result.Err = err
 		return result
-	}
-
-	if executor.IsOutOfCountersError(processBatchResponse.Error) {
-		log.Errorf("error processing unsigned transaction: ROM OOC %v", processBatchResponse.Error)
-		s.LogROMOutOfCountersError(processBatchResponse.Error, processBatchRequest)
-		result.Err = executor.Err(processBatchResponse.Error)
+	} else if processBatchResponse.Error != executor.EXECUTOR_ERROR_NO_ERROR {
+		err = executor.ExecutorErr(processBatchResponse.Error)
+		s.LogExecutorError(processBatchResponse.Error, processBatchRequest)
+		result.Err = err
 		return result
 	}
 
-	response, err := convertToProcessBatchResponse([]types.Transaction{*tx}, processBatchResponse)
+	response, err := s.convertToProcessBatchResponse([]types.Transaction{*tx}, processBatchResponse)
 	if err != nil {
 		result.Err = err
 		return result
@@ -1226,8 +1227,8 @@ func (s *State) ProcessUnsignedTransaction(ctx context.Context, tx *types.Transa
 	result.GasUsed = r.GasUsed
 	result.CreateAddress = r.CreateAddress
 	result.StateRoot = r.StateRoot.Bytes()
-	if processBatchResponse.Responses[0].Error != pb.Error(executor.ERROR_NO_ERROR) {
-		err := executor.Err(processBatchResponse.Responses[0].Error)
+	if processBatchResponse.Responses[0].Error != pb.RomError(executor.ROM_ERROR_NO_ERROR) {
+		err := executor.RomErr(processBatchResponse.Responses[0].Error)
 		if isEVMRevertError(err) {
 			result.Err = constructErrorFromRevert(err, processBatchResponse.Responses[0].ReturnValue)
 		} else {
@@ -1278,7 +1279,7 @@ func (s *State) SetGenesis(ctx context.Context, block Block, genesis Genesis, db
 		case int(merkletree.LeafTypeCode):
 			code, err := hex.DecodeHex(action.Bytecode)
 			if err != nil {
-				return newRoot, fmt.Errorf("Could not decode SC bytecode for address %q: %v", address, err)
+				return newRoot, fmt.Errorf("could not decode SC bytecode for address %q: %v", address, err)
 			}
 			newRoot, _, err = s.tree.SetCode(ctx, address, code, newRoot)
 			if err != nil {
@@ -1302,7 +1303,7 @@ func (s *State) SetGenesis(ctx context.Context, block Block, genesis Genesis, db
 		case int(merkletree.LeafTypeSCLength):
 			log.Debug("Skipped genesis action of type merkletree.LeafTypeSCLength, these actions will be handled as part of merkletree.LeafTypeCode actions")
 		default:
-			return newRoot, fmt.Errorf("Unknown genesis action type %q", action.Type)
+			return newRoot, fmt.Errorf("unknown genesis action type %q", action.Type)
 		}
 	}
 
@@ -1366,10 +1367,61 @@ func (s *State) SetGenesis(ctx context.Context, block Block, genesis Genesis, db
 	}
 	rootHex := root.Hex()
 	log.Info("Genesis root ", rootHex)
-	l2Block := types.NewBlock(header, []*types.Transaction{}, []*types.Header{}, []*types.Receipt{}, &trie.StackTrie{})
+
+	// Decode txs and generate receipts
+	txs, receipts, err := generateGenesisTxsAndReceipts(genesis.Transactions)
+	if err != nil {
+		log.Error("error generating genesis txs and receipts. Error: ", err)
+		return newRoot, err
+	}
+
+	l2Block := types.NewBlock(header, txs, []*types.Header{}, receipts, &trie.StackTrie{})
 	l2Block.ReceivedAt = block.ReceivedAt
 
-	return newRoot, s.AddL2Block(ctx, batch.BatchNumber, l2Block, []*types.Receipt{}, dbTx)
+	return newRoot, s.AddL2Block(ctx, batch.BatchNumber, l2Block, receipts, dbTx)
+}
+
+func generateGenesisTxsAndReceipts(transactions []GenesisTx) ([]*types.Transaction, []*types.Receipt, error) {
+	//Decode genesis raw txs
+	txs := []*types.Transaction{}
+	var receipts []*types.Receipt
+	var cumulativeGasUsed uint64
+	for i, tx := range transactions {
+		rawBytes, err := hex.DecodeHex(tx.RawTx)
+		if err != nil {
+			log.Error("error decoding string rawTxs. Error: ", err)
+			return []*types.Transaction{}, []*types.Receipt{}, err
+		}
+		txsAux, _, err := DecodeTxs(rawBytes)
+		if err != nil {
+			log.Error("error decoding rawBytes. Error: ", err)
+			return []*types.Transaction{}, []*types.Receipt{}, err
+		}
+		for _, tx := range txsAux {
+			t := tx
+			txs = append(txs, &t)
+		}
+
+		// Generate receipts
+		cumulativeGasUsed += tx.Receipt.GasUsed
+		txHash := txsAux[0].Hash()
+		receipt := types.Receipt{
+			Type:              0,
+			PostState:         []byte{},
+			Status:            uint64(tx.Receipt.Status),
+			CumulativeGasUsed: cumulativeGasUsed,
+			//Bloom
+			//Logs
+			TxHash:           txHash,
+			ContractAddress:  tx.CreateAddress,
+			GasUsed:          tx.Receipt.GasUsed,
+			BlockNumber:      big.NewInt(0),
+			TransactionIndex: uint(i),
+		}
+		receipts = append(receipts, &receipt)
+	}
+
+	return txs, receipts, nil
 }
 
 // CheckSupersetBatchTransactions verifies that processedTransactions is a
@@ -1446,10 +1498,10 @@ func (s *State) WaitVerifiedBatchToBeSynced(parentCtx context.Context, batchNumb
 	for {
 		batch, err := s.GetVerifiedBatch(ctx, batchNumber, nil)
 		if err != nil && err != ErrNotFound {
-			log.Errorf("error waiting verified batch %s to be synced: %w", batchNumber, err)
+			log.Errorf("error waiting verified batch [%d] to be synced: %v", batchNumber, err)
 			return err
 		} else if ctx.Err() != nil {
-			log.Errorf("error waiting verified batch %s to be synced: %w", batchNumber, err)
+			log.Errorf("error waiting verified batch [%d] to be synced: %v", batchNumber, err)
 			return ctx.Err()
 		} else if batch != nil {
 			break
@@ -1468,6 +1520,11 @@ func (s *State) monitorNewL2Blocks() {
 	}
 
 	for {
+		if len(s.newL2BlockEventHandlers) == 0 {
+			waitNextCycle()
+			continue
+		}
+
 		lastL2Block, err := s.GetLastL2Block(context.Background(), nil)
 		if errors.Is(err, ErrStateNotSynchronized) {
 			waitNextCycle()
@@ -1505,10 +1562,12 @@ func (s *State) monitorNewL2Blocks() {
 
 func (s *State) handleEvents() {
 	for newL2BlockEvent := range s.newL2BlockEvents {
-		log.Infof("reacting to new l2 block, Number %v, Hash %v", newL2BlockEvent.Block.NumberU64(), newL2BlockEvent.Block.Hash().String())
+		if len(s.newL2BlockEventHandlers) == 0 {
+			continue
+		}
+
 		wg := sync.WaitGroup{}
-		for index, handler := range s.newL2BlockEventHandlers {
-			log.Infof("executing new l2 block event handler for block, Number %v, Hash %v, Handler Index: %v", newL2BlockEvent.Block.NumberU64(), newL2BlockEvent.Block.Hash().String(), index)
+		for _, handler := range s.newL2BlockEventHandlers {
 			wg.Add(1)
 			go func(h NewL2BlockEventHandler) {
 				defer func() {
@@ -1537,19 +1596,20 @@ type NewL2BlockEvent struct {
 // RegisterNewL2BlockEventHandler add the provided handler to the list of handlers
 // that will be triggered when a new l2 block event is triggered
 func (s *State) RegisterNewL2BlockEventHandler(h NewL2BlockEventHandler) {
+	log.Info("new l2 block event handler registered")
 	s.newL2BlockEventHandlers = append(s.newL2BlockEventHandlers, h)
 }
 
-// LogROMOutOfCountersError is used to store ROM OOC error for runtime debugging
-func (s *State) LogROMOutOfCountersError(responseError pb.Error, processBatchRequest *pb.ProcessBatchRequest) {
+// LogExecutorError is used to store Executor error for runtime debugging
+func (s *State) LogExecutorError(responseError pb.ExecutorError, processBatchRequest *pb.ProcessBatchRequest) {
 	timestamp := time.Now()
-	log.Errorf("OOC error found in the ROM: %v at %v", responseError, timestamp)
+	log.Errorf("error found in the executor: %v at %v", responseError, timestamp)
 	payload, err := json.Marshal(processBatchRequest)
 	if err != nil {
 		log.Errorf("error marshaling payload: %v", err)
 	} else {
 		debugInfo := &DebugInfo{
-			ErrorType: DebugInfoErrorType_ROM_OOC,
+			ErrorType: DebugInfoErrorType_EXECUTOR_ERROR,
 			Timestamp: timestamp,
 			Payload:   string(payload),
 		}
@@ -1558,4 +1618,9 @@ func (s *State) LogROMOutOfCountersError(responseError pb.Error, processBatchReq
 			log.Errorf("error storing payload: %v", err)
 		}
 	}
+}
+
+// GetForkIdByBatchNumber returns the fork id for the given batch number
+func (s *State) GetForkIdByBatchNumber(batchNumber uint64) uint64 {
+	return GetForkIDByBatchNumber(s.cfg.ForkIDIntervals, batchNumber)
 }

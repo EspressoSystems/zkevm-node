@@ -3,6 +3,7 @@ package config
 // DefaultValues is the default configuration
 const DefaultValues = `
 IsTrustedSequencer = false
+DefaultForkID = 1
 
 [Log]
 Environment = "development" # "production" or "development"
@@ -18,14 +19,16 @@ Port = "5432"
 EnableLog = false
 MaxConns = 200
 
-[PoolDB]
-User = "pool_user"
-Password = "pool_password"
-Name = "pool_db"
-Host = "localhost"
-Port = "5432"
-EnableLog = false
-MaxConns = 200
+[Pool]
+FreeClaimGasLimit = 150000
+	[Pool.DB]
+	User = "pool_user"
+	Password = "pool_password"
+	Name = "pool_db"
+	Host = "localhost"
+	Port = "5432"
+	EnableLog = false
+	MaxConns = 200
 
 [Etherman]
 URL = "http://localhost:8545"
@@ -38,14 +41,8 @@ MultiGasProvider = true
 		ApiKey = ""
 
 [EthTxManager]
-MaxSendBatchTxRetries = 10
-MaxVerifyBatchTxRetries = 10
-FrequencyForResendingFailedSendBatches = "1s"
-FrequencyForResendingFailedVerifyBatch = "1s"
+FrequencyToMonitorTxs = "1s"
 WaitTxToBeMined = "2m"
-WaitTxToBeSynced = "10s"
-PercentageToIncreaseGasPrice = 10
-PercentageToIncreaseGasLimit = 10
 
 [RPC]
 Host = "0.0.0.0"
@@ -63,7 +60,6 @@ DefaultSenderAddress = "0x1111111111111111111111111111111111111111"
 [Synchronizer]
 SyncInterval = "0s"
 SyncChunkSize = 100
-TrustedSequencerURI = ""
 GenBlockNumber = 1
 
 [Sequencer]
@@ -74,6 +70,7 @@ LastBatchVirtualizationTimeMaxWaitPeriod = "300s"
 WaitBlocksToUpdateGER = 10
 WaitBlocksToConsiderGerFinal = 10
 ElapsedTimeToCloseBatchWithoutTxsDueToNewGER = "60s"
+MinTimeToCloseBatch = "60s"
 MaxTimeForBatchToBeOpen = "15s"
 BlocksAmountForTxsToBeDeleted = 100
 FrequencyToCheckTxsForDelete = "12h"
@@ -103,8 +100,10 @@ VerifyProofInterval = "90s"
 TxProfitabilityCheckerType = "acceptall"
 TxProfitabilityMinReward = "1.1"
 ProofStatePollingInterval = "5s"
+CleanupLockedProofsInterval = "2m"
+GeneratingProofCleanupThreshold = "10m"
 
-[GasPriceEstimator]
+[L2GasPriceSuggester]
 Type = "default"
 DefaultGasPriceWei = 1000000000
 

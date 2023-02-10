@@ -6,6 +6,7 @@ import (
 	"time"
 
 	ethmanTypes "github.com/0xPolygonHermez/zkevm-node/etherman/types"
+	"github.com/0xPolygonHermez/zkevm-node/ethtxmanager"
 	"github.com/0xPolygonHermez/zkevm-node/pool"
 	"github.com/0xPolygonHermez/zkevm-node/state"
 	"github.com/ethereum/go-ethereum/common"
@@ -26,17 +27,19 @@ type txPool interface {
 	GetTxs(ctx context.Context, filterStatus pool.TxStatus, isClaims bool, minGasPrice, limit uint64) ([]*pool.Transaction, error)
 	GetTxFromAddressFromByHash(ctx context.Context, hash common.Hash) (common.Address, uint64, error)
 	IncrementFailedCounter(ctx context.Context, hashes []string) error
+	GetGasPrice(ctx context.Context) (uint64, error)
 }
 
 // etherman contains the methods required to interact with ethereum.
 type etherman interface {
-	EstimateGasSequenceBatches(sequences []ethmanTypes.Sequence) (*types.Transaction, error)
+	EstimateGasSequenceBatches(sender common.Address, sequences []ethmanTypes.Sequence) (*types.Transaction, error)
 	GetSendSequenceFee(numBatches uint64) (*big.Int, error)
 	TrustedSequencer() (common.Address, error)
 	GetLatestBatchNumber() (uint64, error)
 	GetLatestBlockNumber(ctx context.Context) (uint64, error)
 	GetLastBatchTimestamp() (uint64, error)
 	GetLatestBlockTimestamp(ctx context.Context) (uint64, error)
+	BuildSequenceBatchesTxData(sender common.Address, sequences []ethmanTypes.Sequence) (to *common.Address, data []byte, err error)
 }
 
 // stateInterface gathers the methods required to interact with the state.
@@ -68,17 +71,15 @@ type stateInterface interface {
 	GetLastL2BlockNumber(ctx context.Context, dbTx pgx.Tx) (uint64, error)
 }
 
-type txManager interface {
-	SequenceBatches(ctx context.Context, sequences []ethmanTypes.Sequence) error
+type ethTxManager interface {
+	Add(ctx context.Context, owner, id string, from common.Address, to *common.Address, value *big.Int, data []byte, dbTx pgx.Tx) error
+	Result(ctx context.Context, owner, id string, dbTx pgx.Tx) (ethtxmanager.MonitoredTxResult, error)
+	ResultsByStatus(ctx context.Context, owner string, statuses []ethtxmanager.MonitoredTxStatus, dbTx pgx.Tx) ([]ethtxmanager.MonitoredTxResult, error)
+	ProcessPendingMonitoredTxs(ctx context.Context, owner string, failedResultHandler ethtxmanager.ResultHandler, dbTx pgx.Tx)
 }
 
 // priceGetter is for getting eth/matic price, used for the tx profitability checker
 type priceGetter interface {
 	Start(ctx context.Context)
 	GetEthToMaticPrice(ctx context.Context) (*big.Float, error)
-}
-
-// gasPriceEstimator contains the methods required to interact with gas price estimator
-type gasPriceEstimator interface {
-	GetAvgGasPrice(ctx context.Context) (*big.Int, error)
 }
