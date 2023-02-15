@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"math/big"
@@ -12,6 +13,7 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/0xPolygonHermez/zkevm-node/hex"
 	"github.com/0xPolygonHermez/zkevm-node/jsonrpc"
 	"github.com/0xPolygonHermez/zkevm-node/log"
 	"github.com/ethereum/go-ethereum"
@@ -79,13 +81,15 @@ func WaitTxToBeMined(parentCtx context.Context, client ethClienter, tx *types.Tr
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
 	receipt, err := bind.WaitMined(ctx, client, tx)
-	if err != nil {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return err
+	} else if err != nil {
 		log.Errorf("error waiting tx %s to be mined: %w", tx.Hash(), err)
 		return err
 	}
 	if receipt.Status == types.ReceiptStatusFailed {
 		// Get revert reason
-		reason, reasonErr := revertReason(ctx, client, tx, receipt.BlockNumber)
+		reason, reasonErr := RevertReason(ctx, client, tx, receipt.BlockNumber)
 		if reasonErr != nil {
 			reason = reasonErr.Error()
 		}
@@ -95,7 +99,12 @@ func WaitTxToBeMined(parentCtx context.Context, client ethClienter, tx *types.Tr
 	return nil
 }
 
-func revertReason(ctx context.Context, c ethClienter, tx *types.Transaction, blockNumber *big.Int) (string, error) {
+// RevertReason returns the revert reason for a tx that has a receipt with failed status
+func RevertReason(ctx context.Context, c ethClienter, tx *types.Transaction, blockNumber *big.Int) (string, error) {
+	if tx == nil {
+		return "", nil
+	}
+
 	from, err := types.Sender(types.NewEIP155Signer(tx.ChainId()), tx)
 	if err != nil {
 		signer := types.LatestSignerForChainID(tx.ChainId())
@@ -227,7 +236,7 @@ func grpcHealthyCondition(address string) (bool, error) {
 // l2BlockConsolidationCondition
 func l2BlockConsolidationCondition(l2Block *big.Int) (bool, error) {
 	l2NetworkURL := "http://localhost:8123"
-	response, err := jsonrpc.JSONRPCCall(l2NetworkURL, "zkevm_isL2BlockConsolidated", l2Block.Uint64())
+	response, err := jsonrpc.JSONRPCCall(l2NetworkURL, "zkevm_isBlockConsolidated", hex.EncodeBig(l2Block))
 	if err != nil {
 		return false, err
 	}
@@ -245,7 +254,7 @@ func l2BlockConsolidationCondition(l2Block *big.Int) (bool, error) {
 // l2BlockVirtualizationCondition
 func l2BlockVirtualizationCondition(l2Block *big.Int) (bool, error) {
 	l2NetworkURL := "http://localhost:8123"
-	response, err := jsonrpc.JSONRPCCall(l2NetworkURL, "zkevm_isL2BlockVirtualized", l2Block.Uint64())
+	response, err := jsonrpc.JSONRPCCall(l2NetworkURL, "zkevm_isBlockVirtualized", hex.EncodeBig(l2Block))
 	if err != nil {
 		return false, err
 	}

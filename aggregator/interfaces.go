@@ -6,18 +6,19 @@ import (
 
 	"github.com/0xPolygonHermez/zkevm-node/aggregator/pb"
 	ethmanTypes "github.com/0xPolygonHermez/zkevm-node/etherman/types"
+	"github.com/0xPolygonHermez/zkevm-node/ethtxmanager"
 	"github.com/0xPolygonHermez/zkevm-node/state"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/jackc/pgx/v4"
 )
 
 // Consumer interfaces required by the package.
 
 type proverInterface interface {
+	Name() string
 	ID() string
 	Addr() string
-	IsIdle() bool
+	IsIdle() (bool, error)
 	BatchProof(input *pb.InputProver) (*string, error)
 	AggregatedProof(inputProof1, inputProof2 string) (*string, error)
 	FinalProof(inputProof string, aggregatorAddr string) (*string, error)
@@ -28,13 +29,16 @@ type proverInterface interface {
 // ethTxManager contains the methods required to send txs to
 // ethereum.
 type ethTxManager interface {
-	VerifyBatches(ctx context.Context, lastVerifiedBatch uint64, batchNum uint64, inputs *ethmanTypes.FinalProofInputs) (*types.Transaction, error)
+	Add(ctx context.Context, owner, id string, from common.Address, to *common.Address, value *big.Int, data []byte, dbTx pgx.Tx) error
+	Result(ctx context.Context, owner, id string, dbTx pgx.Tx) (ethtxmanager.MonitoredTxResult, error)
+	ResultsByStatus(ctx context.Context, owner string, statuses []ethtxmanager.MonitoredTxStatus, dbTx pgx.Tx) ([]ethtxmanager.MonitoredTxResult, error)
+	ProcessPendingMonitoredTxs(ctx context.Context, owner string, failedResultHandler ethtxmanager.ResultHandler, dbTx pgx.Tx)
 }
 
 // etherman contains the methods required to interact with ethereum
 type etherman interface {
 	GetLatestVerifiedBatchNum() (uint64, error)
-	GetPublicAddress() (common.Address, error)
+	BuildTrustedVerifyBatchesTxData(lastVerifiedBatch, newVerifiedBatch uint64, inputs *ethmanTypes.FinalProofInputs) (to *common.Address, data []byte, err error)
 }
 
 // aggregatorTxProfitabilityChecker interface for different profitability
@@ -56,4 +60,6 @@ type stateInterface interface {
 	UpdateGeneratedProof(ctx context.Context, proof *state.Proof, dbTx pgx.Tx) error
 	DeleteGeneratedProofs(ctx context.Context, batchNumber uint64, batchNumberFinal uint64, dbTx pgx.Tx) error
 	DeleteUngeneratedProofs(ctx context.Context, dbTx pgx.Tx) error
+	CleanupGeneratedProofs(ctx context.Context, batchNumber uint64, dbTx pgx.Tx) error
+	CleanupLockedProofs(ctx context.Context, duration string, dbTx pgx.Tx) (int64, error)
 }

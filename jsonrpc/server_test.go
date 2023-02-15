@@ -24,17 +24,15 @@ type mockedServer struct {
 }
 
 type mocks struct {
-	Pool              *poolMock
-	State             *stateMock
-	GasPriceEstimator *gasPriceEstimatorMock
-	Storage           *storageMock
-	DbTx              *dbTxMock
+	Pool    *poolMock
+	State   *stateMock
+	Storage *storageMock
+	DbTx    *dbTxMock
 }
 
 func newMockedServer(t *testing.T, cfg Config) (*mockedServer, *mocks, *ethclient.Client) {
 	pool := newPoolMock(t)
 	st := newStateMock(t)
-	gasPriceEstimator := newGasPriceEstimatorMock(t)
 	storage := newStorageMock(t)
 	dbTx := newDbTxMock(t)
 	apis := map[string]bool{
@@ -50,8 +48,7 @@ func newMockedServer(t *testing.T, cfg Config) (*mockedServer, *mocks, *ethclien
 	st.On("RegisterNewL2BlockEventHandler", mock.IsType(newL2BlockEventHandler)).Once()
 
 	st.On("PrepareWebSocket").Once()
-
-	server := NewServer(cfg, pool, st, gasPriceEstimator, storage, apis)
+	server := NewServer(cfg, pool, st, storage, apis)
 
 	go func() {
 		err := server.Start()
@@ -81,11 +78,10 @@ func newMockedServer(t *testing.T, cfg Config) (*mockedServer, *mocks, *ethclien
 	}
 
 	mks := &mocks{
-		Pool:              pool,
-		State:             st,
-		GasPriceEstimator: gasPriceEstimator,
-		Storage:           storage,
-		DbTx:              dbTx,
+		Pool:    pool,
+		State:   st,
+		Storage: storage,
+		DbTx:    dbTx,
 	}
 
 	return msv, mks, ethClient
@@ -94,7 +90,7 @@ func newMockedServer(t *testing.T, cfg Config) (*mockedServer, *mocks, *ethclien
 func getDefaultConfig() Config {
 	cfg := Config{
 		Host:                      host,
-		Port:                      8123,
+		Port:                      9123,
 		MaxRequestsPerIPAndSecond: maxRequestsPerIPAndSecond,
 		DefaultSenderAddress:      "0x1111111111111111111111111111111111111111",
 		MaxCumulativeGasUsed:      300000,
@@ -110,7 +106,7 @@ func newSequencerMockedServer(t *testing.T) (*mockedServer, *mocks, *ethclient.C
 
 func newNonSequencerMockedServer(t *testing.T, sequencerNodeURI string) (*mockedServer, *mocks, *ethclient.Client) {
 	cfg := getDefaultConfig()
-	cfg.Port = 8124
+	cfg.Port = 9124
 	cfg.SequencerNodeURI = sequencerNodeURI
 	return newMockedServer(t, cfg)
 }
