@@ -351,7 +351,10 @@ func (a *Aggregator) buildFinalProof(ctx context.Context, prover proverInterface
 // generated proof.  If the proof is eligible, then the final proof generation
 // is triggered.
 func (a *Aggregator) tryBuildFinalProof(ctx context.Context, prover proverInterface, proof *state.Proof) (proofBuilt bool, err error) {
-	log.Debugf("tryBuildFinalProof start prover { ID [%s], addr [%s] }", prover.ID(), prover.Addr())
+	proverName := prover.Name()
+	proverID := prover.ID()
+	log := log.WithFields("prover", proverName, "proverId", proverID, "proverAddr", prover.Addr())
+	log.Debug("tryBuildFinalProof start")
 
 	if !a.canVerifyProof() {
 		log.Debug("Time to verify proof not reached or proof verification in progress")
@@ -361,11 +364,11 @@ func (a *Aggregator) tryBuildFinalProof(ctx context.Context, prover proverInterf
 
 	defer func() {
 		if !proofBuilt {
-			a.enableProofVerification()
+			a.endProofVerification()
 		}
 	}()
 
-	for !a.isSynced(ctx) {
+	for !a.isSynced(ctx, nil) {
 		log.Info("Waiting for synchronizer to sync...")
 		time.Sleep(a.cfg.RetryTime.Duration)
 		continue
