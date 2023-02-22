@@ -37,7 +37,8 @@ type ProcessingReceipt struct {
 	StateRoot     common.Hash
 	LocalExitRoot common.Hash
 	AccInputHash  common.Hash
-	Txs           []types.Transaction
+	// Txs           []types.Transaction
+	BatchL2Data []byte
 }
 
 // VerifiedBatch represents a VerifiedBatch
@@ -47,14 +48,16 @@ type VerifiedBatch struct {
 	Aggregator  common.Address
 	TxHash      common.Hash
 	StateRoot   common.Hash
+	IsTrusted   bool
 }
 
 // VirtualBatch represents a VirtualBatch
 type VirtualBatch struct {
-	BatchNumber uint64
-	TxHash      common.Hash
-	Coinbase    common.Address
-	BlockNumber uint64
+	BatchNumber   uint64
+	TxHash        common.Hash
+	Coinbase      common.Address
+	SequencerAddr common.Address
+	BlockNumber   uint64
 }
 
 // Sequence represents the sequence interval
