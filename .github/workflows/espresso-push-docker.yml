@@ -1,9 +1,9 @@
 on:
   push:
     branches:
-    - main
-    - ci
-    - hotshot-integration
+      - main
+      - ci
+      - hotshot-integration
     tags:
       - 'v*'
   workflow_dispatch:
