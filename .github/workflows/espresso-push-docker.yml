@@ -4,6 +4,8 @@ on:
     - main
     - ci
     - hotshot-integration
+    tags:
+      - 'v*'
   workflow_dispatch:
 
 jobs:
