@@ -18,6 +18,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/matic"
 	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/polygonzkevm"
 	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/polygonzkevmglobalexitroot"
+	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/ihotshot"
 	ethmanTypes "github.com/0xPolygonHermez/zkevm-node/etherman/types"
 	"github.com/0xPolygonHermez/zkevm-node/log"
 	"github.com/0xPolygonHermez/zkevm-node/state"
@@ -111,6 +112,7 @@ type Client struct {
 	PoE                   *polygonzkevm.Polygonzkevm
 	GlobalExitRootManager *polygonzkevmglobalexitroot.Polygonzkevmglobalexitroot
 	Matic                 *matic.Matic
+	HotShot				  *ihotshot.Ihotshot
 	SCAddresses           []common.Address
 
 	GasProviders externalGasProviders
@@ -141,7 +143,7 @@ func NewClient(cfg Config) (*Client, error) {
 		return nil, err
 	}
 	var scAddresses []common.Address
-	scAddresses = append(scAddresses, cfg.PoEAddr, cfg.GlobalExitRootManagerAddr)
+	scAddresses = append(scAddresses, cfg.PoEAddr, cfg.GlobalExitRootManagerAddr, cfg.HotShotAddr)
 
 	gProviders := []ethereum.GasPricer{ethClient}
 	if cfg.MultiGasProvider {
@@ -635,26 +637,44 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 }
 
 func (etherMan *Client) decodeSequencesHotShot(txData []byte, lastBatchNumber uint64, sequencer common.Address, vLog types.Log, nonce uint64) ([]SequencedBatch, error) {
+	newBlocks, err := etherMan.HotShot.ParseNewBlocks(vLog)
+
+	if err != nil {
+		//TODO Error handling
+	}
+
 	// Get number of batches by parsing transaction
-	var numNewBatches uint64 := //TODO
+	var numNewBatches uint64 = newBlocks.NumBlocks
 
-	var txHash common.Hash := vLog.TxHash
+	var txHash common.Hash = vLog.TxHash
 
-	var firstNewBatch uint64 := lastBatchNumber - numNewBatches + 1
+	// First new Hermez batch
+	var firstNewBatch uint64 = lastBatchNumber - numNewBatches + 1
 
 	sequencedBatches := make([]SequencedBatch, numNewBatches)
 
+	// TODO: Should this change between HotShot blocks?
 	ger, err := etherMan.GlobalExitRootManager.getLastGlobalExitRoot(&bind.CallOpts{BlockNumber: vLog.BlockNumber})
+	
 	if err != nil {
-		// Error handling?
+		// Error handling
 	}
 
+	// TODO: Should this change between HotShot blocks?
+	timestamp, _ := etherMan.EthClient.BlockByNumber(vLog.BlockNumber)
+
 	for i := 0; i < numNewBatches; i++ {		
+		curBlockNumber := newBlocks.FirstBlockNumber + i
+
+		// Get transactions from HSQS
+		response, _:= http.Get(etherMan.cfg.HotShotQueryServiceURL + "/block/" + string(curBlockNumber))
+		txns, _:= io.ReadAll(response.Body)
+		// TODO: error handling
 
 		var newBatchData polygonzkevm.PolygonZkEVMBatchData := polygonzkevm.PolygonZkEVMBatchData{
-			Transactions: , // get from HSQS adapter
-			GlobalExitRoot: ger, // call getLastGlobalExitRoot at desired block number
-			Timestamp: , // get from block field
+			Transactions: txns,
+			GlobalExitRoot: ger,
+			Timestamp: timestamp,
 			MinForcedTimestamp: 0, // arbitrary
 		}
 
