@@ -15,10 +15,10 @@ import (
 
 	"github.com/0xPolygonHermez/zkevm-node/etherman/etherscan"
 	"github.com/0xPolygonHermez/zkevm-node/etherman/ethgasstation"
+	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/ihotshot"
 	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/matic"
 	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/polygonzkevm"
 	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/polygonzkevmglobalexitroot"
-	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/ihotshot"
 	ethmanTypes "github.com/0xPolygonHermez/zkevm-node/etherman/types"
 	"github.com/0xPolygonHermez/zkevm-node/log"
 	"github.com/0xPolygonHermez/zkevm-node/state"
@@ -112,7 +112,7 @@ type Client struct {
 	PoE                   *polygonzkevm.Polygonzkevm
 	GlobalExitRootManager *polygonzkevmglobalexitroot.Polygonzkevmglobalexitroot
 	Matic                 *matic.Matic
-	HotShot				  *ihotshot.Ihotshot
+	HotShot               *ihotshot.Ihotshot
 	SCAddresses           []common.Address
 
 	GasProviders externalGasProviders
@@ -609,7 +609,7 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 	if err != nil {
 		return err
 	}
-	sequences, err := decodeSequences(tx.Data(), sb.NumBatch, msg.From(), vLog.TxHash, msg.Nonce())
+	sequences, err := etherMan.decodeSequencesHotShot(ctx, tx.Data(), sb.NumBatch, msg.From(), vLog, msg.Nonce())
 	if err != nil {
 		return fmt.Errorf("error decoding the sequences: %v", err)
 	}
@@ -636,7 +636,7 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 	return nil
 }
 
-func (etherMan *Client) decodeSequencesHotShot(txData []byte, lastBatchNumber uint64, sequencer common.Address, vLog types.Log, nonce uint64) ([]SequencedBatch, error) {
+func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byte, lastBatchNumber uint64, sequencer common.Address, vLog types.Log, nonce uint64) ([]SequencedBatch, error) {
 	newBlocks, err := etherMan.HotShot.ParseNewBlocks(vLog)
 
 	if err != nil {
@@ -644,7 +644,7 @@ func (etherMan *Client) decodeSequencesHotShot(txData []byte, lastBatchNumber ui
 	}
 
 	// Get number of batches by parsing transaction
-	var numNewBatches uint64 = newBlocks.NumBlocks
+	numNewBatches := newBlocks.NumBlocks.Uint64()
 
 	var txHash common.Hash = vLog.TxHash
 
@@ -652,29 +652,30 @@ func (etherMan *Client) decodeSequencesHotShot(txData []byte, lastBatchNumber ui
 	var firstNewBatch uint64 = lastBatchNumber - numNewBatches + 1
 
 	sequencedBatches := make([]SequencedBatch, numNewBatches)
+	l1BlockNum := new(big.Int).SetUint64(vLog.BlockNumber)
 
 	// TODO: Should this change between HotShot blocks?
-	ger, err := etherMan.GlobalExitRootManager.getLastGlobalExitRoot(&bind.CallOpts{BlockNumber: vLog.BlockNumber})
-	
+	ger, err := etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1BlockNum})
+
 	if err != nil {
 		// Error handling
 	}
 
 	// TODO: Should this change between HotShot blocks?
-	timestamp, _ := etherMan.EthClient.BlockByNumber(vLog.BlockNumber)
+	timestamp, _ := etherMan.EthClient.BlockByNumber(ctx, l1BlockNum)
 
-	for i := 0; i < numNewBatches; i++ {		
+	for i := 0; i < numNewBatches; i++ {
 		curBlockNumber := newBlocks.FirstBlockNumber + i
 
 		// Get transactions from HSQS
-		response, _:= http.Get(etherMan.cfg.HotShotQueryServiceURL + "/block/" + string(curBlockNumber))
-		txns, _:= io.ReadAll(response.Body)
+		response, _ := http.Get(etherMan.cfg.HotShotQueryServiceURL + "/block/" + string(curBlockNumber))
+		txns, _ := io.ReadAll(response.Body)
 		// TODO: error handling
 
-		var newBatchData polygonzkevm.PolygonZkEVMBatchData := polygonzkevm.PolygonZkEVMBatchData{
-			Transactions: txns,
-			GlobalExitRoot: ger,
-			Timestamp: timestamp,
+		newBatchData := polygonzkevm.PolygonZkEVMBatchData{
+			Transactions:       txns,
+			GlobalExitRoot:     ger,
+			Timestamp:          timestamp,
 			MinForcedTimestamp: 0, // arbitrary
 		}
 
@@ -684,7 +685,7 @@ func (etherMan *Client) decodeSequencesHotShot(txData []byte, lastBatchNumber ui
 			SequencerAddr:         sequencer,
 			TxHash:                txHash,
 			Nonce:                 nonce,
-			Coinbase:              coinbase, //any address?
+			Coinbase:              coinbase,     //any address?
 			PolygonZkEVMBatchData: newBatchData, // BatchData info
 		}
 	}
