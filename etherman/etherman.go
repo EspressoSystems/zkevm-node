@@ -634,6 +634,44 @@ func (etherMan *Client) sequencedBatchesEvent(ctx context.Context, vLog types.Lo
 	return nil
 }
 
+func (etherMan *Client) decodeSequencesHotShot(txData []byte, lastBatchNumber uint64, sequencer common.Address, vLog types.Log, nonce uint64) ([]SequencedBatch, error) {
+	// Get number of batches by parsing transaction
+	var numNewBatches uint64 := //TODO
+
+	var txHash common.Hash := vLog.TxHash
+
+	var firstNewBatch uint64 := lastBatchNumber - numNewBatches + 1
+
+	sequencedBatches := make([]SequencedBatch, numNewBatches)
+
+	ger, err := etherMan.GlobalExitRootManager.getLastGlobalExitRoot(&bind.CallOpts{BlockNumber: vLog.BlockNumber})
+	if err != nil {
+		// Error handling?
+	}
+
+	for i := 0; i < numNewBatches; i++ {		
+
+		var newBatchData polygonzkevm.PolygonZkEVMBatchData := polygonzkevm.PolygonZkEVMBatchData{
+			Transactions: , // get from HSQS adapter
+			GlobalExitRoot: ger, // call getLastGlobalExitRoot at desired block number
+			Timestamp: , // get from block field
+			MinForcedTimestamp: 0, // arbitrary
+		}
+
+		bn := firstNewBatch + i
+		sequencedBatches[i] = SequencedBatch{
+			BatchNumber:           bn,
+			SequencerAddr:         sequencer,
+			TxHash:                txHash,
+			Nonce:                 nonce,
+			Coinbase:              coinbase, //any address?
+			PolygonZkEVMBatchData: newBatchData, // BatchData info
+		}
+	}
+
+	return sequencedBatches, nil
+}
+
 func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash common.Hash, nonce uint64) ([]SequencedBatch, error) {
 	// Extract coded txs.
 	// Load contract ABI
