@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"math"
 	"math/big"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
@@ -645,6 +647,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 
 	// Get number of batches by parsing transaction
 	numNewBatches := newBlocks.NumBlocks.Uint64()
+	firstNewBatchNum := newBlocks.FirstBlockNumber.Uint64()
 
 	var txHash common.Hash = vLog.TxHash
 
@@ -662,20 +665,20 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 	}
 
 	// TODO: Should this change between HotShot blocks?
-	timestamp, _ := etherMan.EthClient.BlockByNumber(ctx, l1BlockNum)
+	l1Block, _ := etherMan.EthClient.BlockByNumber(ctx, l1BlockNum)
 
-	for i := 0; i < numNewBatches; i++ {
-		curBlockNumber := newBlocks.FirstBlockNumber + i
+	for i := uint64(0); i < numNewBatches; i++ {
+		curBatchNum := firstNewBatchNum + i
 
 		// Get transactions from HSQS
-		response, _ := http.Get(etherMan.cfg.HotShotQueryServiceURL + "/block/" + string(curBlockNumber))
+		response, _ := http.Get(etherMan.cfg.HotShotQueryServiceURL + "/block/" + string(curBatchNum))
 		txns, _ := io.ReadAll(response.Body)
 		// TODO: error handling
 
 		newBatchData := polygonzkevm.PolygonZkEVMBatchData{
 			Transactions:       txns,
 			GlobalExitRoot:     ger,
-			Timestamp:          timestamp,
+			Timestamp:          l1Block.Time(),
 			MinForcedTimestamp: 0, // arbitrary
 		}
 
@@ -685,8 +688,8 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 			SequencerAddr:         sequencer,
 			TxHash:                txHash,
 			Nonce:                 nonce,
-			Coinbase:              coinbase,     //any address?
-			PolygonZkEVMBatchData: newBatchData, // BatchData info
+			Coinbase:              common.Address{}, // TODO: what address should we set?
+			PolygonZkEVMBatchData: newBatchData,     // BatchData info
 		}
 	}
 
