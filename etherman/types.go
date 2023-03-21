@@ -61,5 +61,4 @@ type PolygonZkEVMBatchData struct {
 	Transactions       []byte
 	GlobalExitRoot     [32]byte
 	Timestamp          uint64
-	MinForcedTimestamp uint64
 }
