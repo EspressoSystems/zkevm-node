@@ -297,8 +297,6 @@ func (etherMan *Client) processEvent(ctx context.Context, vLog types.Log, blocks
 	case verifyBatchesSignatureHash:
 		log.Warn("VerifyBatches event not implemented yet")
 		return nil
-	case forceSequencedBatchesSignatureHash:
-		return etherMan.forceSequencedBatchesEvent(ctx, vLog, blocks, blocksOrder)
 	case setTrustedSequencerURLSignatureHash:
 		log.Debug("SetTrustedSequencerURL event detected")
 		return nil
@@ -774,97 +772,6 @@ func (etherMan *Client) verifyBatchesTrustedAggregatorEvent(ctx context.Context,
 	}
 	(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
 	return nil
-}
-
-func (etherMan *Client) forceSequencedBatchesEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
-	log.Debug("SequenceForceBatches event detect")
-	fsb, err := etherMan.PoE.ParseSequenceForceBatches(vLog)
-	if err != nil {
-		return err
-	}
-
-	// Read the tx for this batch.
-	tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
-	if err != nil {
-		return err
-	} else if isPending {
-		return fmt.Errorf("error: tx is still pending. TxHash: %s", tx.Hash().String())
-	}
-	msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
-	if err != nil {
-		return err
-	}
-	fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
-	if err != nil {
-		return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
-	}
-	sequencedForceBatch, err := decodeSequencedForceBatches(tx.Data(), fsb.NumBatch, msg.From(), vLog.TxHash, fullBlock, msg.Nonce())
-	if err != nil {
-		return err
-	}
-
-	if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-		block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
-		block.SequencedForceBatches = append(block.SequencedForceBatches, sequencedForceBatch)
-		*blocks = append(*blocks, block)
-	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
-		(*blocks)[len(*blocks)-1].SequencedForceBatches = append((*blocks)[len(*blocks)-1].SequencedForceBatches, sequencedForceBatch)
-	} else {
-		log.Error("Error processing ForceSequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
-		return fmt.Errorf("error processing ForceSequencedBatches event")
-	}
-	or := Order{
-		Name: SequenceForceBatchesOrder,
-		Pos:  len((*blocks)[len(*blocks)-1].SequencedForceBatches) - 1,
-	}
-	(*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash] = append((*blocksOrder)[(*blocks)[len(*blocks)-1].BlockHash], or)
-
-	return nil
-}
-
-func decodeSequencedForceBatches(txData []byte, lastBatchNumber uint64, sequencer common.Address, txHash common.Hash, block *types.Block, nonce uint64) ([]SequencedForceBatch, error) {
-	// Extract coded txs.
-	// Load contract ABI
-	abi, err := abi.JSON(strings.NewReader(polygonzkevm.PolygonzkevmABI))
-	if err != nil {
-		return nil, err
-	}
-
-	// Recover Method from signature and ABI
-	method, err := abi.MethodById(txData[:4])
-	if err != nil {
-		return nil, err
-	}
-
-	// Unpack method inputs
-	data, err := method.Inputs.Unpack(txData[4:])
-	if err != nil {
-		return nil, err
-	}
-
-	var forceBatches []polygonzkevm.PolygonZkEVMForcedBatchData
-	bytedata, err := json.Marshal(data[0])
-	if err != nil {
-		return nil, err
-	}
-	err = json.Unmarshal(bytedata, &forceBatches)
-	if err != nil {
-		return nil, err
-	}
-
-	sequencedForcedBatches := make([]SequencedForceBatch, len(forceBatches))
-	for i, force := range forceBatches {
-		bn := lastBatchNumber - uint64(len(forceBatches)-(i+1))
-		sequencedForcedBatches[i] = SequencedForceBatch{
-			BatchNumber:                 bn,
-			Coinbase:                    sequencer,
-			TxHash:                      txHash,
-			Timestamp:                   time.Unix(int64(block.Time()), 0),
-			Nonce:                       nonce,
-			PolygonZkEVMForcedBatchData: force,
-		}
-	}
-	return sequencedForcedBatches, nil
 }
 
 func prepareBlock(vLog types.Log, t time.Time, fullBlock *types.Block) Block {
