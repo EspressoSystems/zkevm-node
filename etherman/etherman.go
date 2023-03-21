@@ -391,20 +391,35 @@ func (etherMan *Client) BuildTrustedVerifyBatchesTxData(lastVerifiedBatch, newVe
 	var newStateRoot [32]byte
 	copy(newStateRoot[:], inputs.NewStateRoot)
 
-	proofA, err := strSliceToBigIntArray(inputs.FinalProof.Proof.ProofA)
+	// Referenced several times below
+	finalproof := inputs.FinalProof
+
+	proofA, err := strSliceToBigIntArray(finalproof.Proof.ProofA)
 	if err != nil {
 		return nil, nil, err
 	}
-	proofB, err := proofSlcToIntArray(inputs.FinalProof.Proof.ProofB)
+	proofB, err := proofSlcToIntArray(finalproof.Proof.ProofB)
 	if err != nil {
 		return nil, nil, err
 	}
-	proofC, err := strSliceToBigIntArray(inputs.FinalProof.Proof.ProofC)
+	proofC, err := strSliceToBigIntArray(finalproof.Proof.ProofC)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	const pendStateNum = 0 // TODO hardcoded for now until we implement the pending state feature
+
+	var oldAIH [32]byte
+	copy(oldAIH[:], finalproof.Public.PublicInputs.OldAccInputHash)
+	
+	var newAIH [32]byte
+	copy(newAIH[:], finalproof.Public.NewAccInputHash)
+
+	packedHotShotParams := polygonzkevm.PolygonZkEVMPackedHotShotParams {
+		OldAccInputHash : oldAIH,
+		NewAccInputHash : newAIH,
+		CommProof : []byte{}, // TODO: Not yet implemented
+	}
 
 	tx, err := etherMan.PoE.VerifyBatchesTrustedAggregator(
 		&opts,
@@ -416,6 +431,7 @@ func (etherMan *Client) BuildTrustedVerifyBatchesTxData(lastVerifiedBatch, newVe
 		proofA,
 		proofB,
 		proofC,
+		packedHotShotParams,
 	)
 	if err != nil {
 		if parsedErr, ok := tryParseError(err); ok {
