@@ -34,7 +34,7 @@ type SequencedBatch struct {
 	TxHash        common.Hash
 	Nonce         uint64
 	Coinbase      common.Address
-	polygonzkevm.PolygonZkEVMBatchData
+	PolygonZkEVMBatchData
 }
 
 // ForcedBatch represents a ForcedBatch
@@ -54,4 +54,12 @@ type VerifiedBatch struct {
 	Aggregator  common.Address
 	StateRoot   common.Hash
 	TxHash      common.Hash
+}
+
+// Copied from binding for a previous iteration of the contract
+type PolygonZkEVMBatchData struct {
+	Transactions       []byte
+	GlobalExitRoot     [32]byte
+	Timestamp          uint64
+	MinForcedTimestamp uint64
 }

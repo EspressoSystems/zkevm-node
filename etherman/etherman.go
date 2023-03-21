@@ -425,13 +425,13 @@ func (etherMan *Client) BuildSequenceBatchesTxData(sender common.Address, sequen
 }
 
 func (etherMan *Client) sequenceBatches(opts bind.TransactOpts, sequences []ethmanTypes.Sequence) (*types.Transaction, error) {
-	var batches []polygonzkevm.PolygonZkEVMBatchData
+	var batches []PolygonZkEVMBatchData
 	for _, seq := range sequences {
 		batchL2Data, err := state.EncodeTransactions(seq.Txs)
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode transactions, err: %v", err)
 		}
-		batch := polygonzkevm.PolygonZkEVMBatchData{
+		batch := PolygonZkEVMBatchData{
 			Transactions:       batchL2Data,
 			GlobalExitRoot:     seq.GlobalExitRoot,
 			Timestamp:          uint64(seq.Timestamp),
@@ -673,7 +673,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 		txns, _ := io.ReadAll(response.Body)
 		// TODO: error handling
 
-		newBatchData := polygonzkevm.PolygonZkEVMBatchData{
+		newBatchData := PolygonZkEVMBatchData{
 			Transactions:       txns,
 			GlobalExitRoot:     ger,
 			Timestamp:          l1Block.Time(),
@@ -713,7 +713,7 @@ func decodeSequences(txData []byte, lastBatchNumber uint64, sequencer common.Add
 	if err != nil {
 		return nil, err
 	}
-	var sequences []polygonzkevm.PolygonZkEVMBatchData
+	var sequences []PolygonZkEVMBatchData
 	bytedata, err := json.Marshal(data[0])
 	if err != nil {
 		return nil, err
