@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/0xPolygonHermez/zkevm-node/etherman/etherscan"
@@ -135,6 +136,11 @@ func NewClient(cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
+	hotshot, err := ihotshot.NewIhotshot(cfg.HotShotAddr, ethClient)
+	if err != nil {
+		return nil, err
+	}
+
 	var scAddresses []common.Address
 	scAddresses = append(scAddresses, cfg.PoEAddr, cfg.GlobalExitRootManagerAddr, cfg.HotShotAddr)
 
@@ -154,6 +160,7 @@ func NewClient(cfg Config) (*Client, error) {
 		PoE:                   poe,
 		Matic:                 matic,
 		GlobalExitRootManager: globalExitRoot,
+		HotShot:               hotshot,
 		SCAddresses:           scAddresses,
 		GasProviders: externalGasProviders{
 			MultiGasProvider: cfg.MultiGasProvider,
@@ -461,9 +468,7 @@ func (etherMan *Client) TrustedSequencer() (common.Address, error) {
 
 func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	log.Debug("NewBlocks event detected")
-	// newBlocks, err := etherMan.HotShot.ParseNewBlocks(vLog) // TODO: use this
-	// TODO get sb.NumBatch from somewhere or set to hotshot block number
-	sb, err := etherMan.PoE.ParseSequenceBatches(vLog) // XXX this needs to be removed
+	newBlocks, err := etherMan.HotShot.ParseNewBlocks(vLog)
 	if err != nil {
 		return err
 	}
@@ -478,7 +483,7 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, bloc
 	if err != nil {
 		return err
 	}
-	sequences, err := etherMan.decodeSequencesHotShot(ctx, tx.Data(), sb.NumBatch, msg.From(), vLog, msg.Nonce())
+	sequences, err := etherMan.decodeSequencesHotShot(ctx, tx.Data(), *newBlocks, msg.From(), msg.Nonce())
 	if err != nil {
 		return fmt.Errorf("error decoding the sequences: %v", err)
 	}
@@ -505,24 +510,16 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, bloc
 	return nil
 }
 
-func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byte, lastBatchNumber uint64, sequencer common.Address, vLog types.Log, nonce uint64) ([]SequencedBatch, error) {
-	newBlocks, err := etherMan.HotShot.ParseNewBlocks(vLog)
-
-	if err != nil {
-		//TODO Error handling
-	}
+func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byte, newBlocks ihotshot.IhotshotNewBlocks, sequencer common.Address, nonce uint64) ([]SequencedBatch, error) {
 
 	// Get number of batches by parsing transaction
 	numNewBatches := newBlocks.NumBlocks.Uint64()
 	firstNewBatchNum := newBlocks.FirstBlockNumber.Uint64()
 
-	var txHash common.Hash = vLog.TxHash
-
-	// First new Hermez batch
-	var firstNewBatch uint64 = lastBatchNumber - numNewBatches + 1
+	var txHash common.Hash = newBlocks.Raw.TxHash
 
 	sequencedBatches := make([]SequencedBatch, numNewBatches)
-	l1BlockNum := new(big.Int).SetUint64(vLog.BlockNumber)
+	l1BlockNum := new(big.Int).SetUint64(newBlocks.Raw.BlockNumber)
 
 	// TODO: Should this change between HotShot blocks?
 	ger, err := etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1BlockNum})
@@ -538,7 +535,11 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 		curBatchNum := firstNewBatchNum + i
 
 		// Get transactions from HSQS
-		response, _ := http.Get(etherMan.cfg.HotShotQueryServiceURL + "/block/" + string(curBatchNum))
+		url := etherMan.cfg.HotShotQueryServiceURL + "/block/" + strconv.FormatUint(curBatchNum, 10)
+		response, err := http.Get(url)
+		if err != nil {
+			log.Error(err.Error())
+		}
 		txns, _ := io.ReadAll(response.Body)
 		// TODO: error handling
 
@@ -548,7 +549,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 			Timestamp:      l1Block.Time(),
 		}
 
-		bn := firstNewBatch + i
+		bn := firstNewBatchNum + i
 		sequencedBatches[i] = SequencedBatch{
 			BatchNumber:           bn,
 			SequencerAddr:         sequencer,
