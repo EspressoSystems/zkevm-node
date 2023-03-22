@@ -46,6 +46,7 @@ var (
 	emergencyStateActivatedSignatureHash        = crypto.Keccak256Hash([]byte("EmergencyStateActivated()"))
 	emergencyStateDeactivatedSignatureHash      = crypto.Keccak256Hash([]byte("EmergencyStateDeactivated()"))
 	updateZkEVMVersionSignatureHash             = crypto.Keccak256Hash([]byte("UpdateZkEVMVersion(uint64,uint64,string)"))
+	newBlocksHash                               = crypto.Keccak256Hash([]byte("NewBlocks(uint256,uint256)"))
 
 	// Proxy events
 	initializedSignatureHash    = crypto.Keccak256Hash([]byte("Initialized(uint8)"))
@@ -280,7 +281,7 @@ func (etherMan *Client) processEvent(ctx context.Context, vLog types.Log, blocks
 		return etherMan.sequencedBatchesEvent(ctx, vLog, blocks, blocksOrder)
 	case updateGlobalExitRootSignatureHash:
 		return etherMan.updateGlobalExitRootEvent(ctx, vLog, blocks, blocksOrder)
-	case verifyBatchesTrustedAggregatorSignatureHash:
+	case newBlocksHash:
 		return etherMan.verifyBatchesTrustedAggregatorEvent(ctx, vLog, blocks, blocksOrder)
 	case verifyBatchesSignatureHash:
 		log.Warn("VerifyBatches event not implemented yet")
@@ -411,14 +412,14 @@ func (etherMan *Client) BuildTrustedVerifyBatchesTxData(lastVerifiedBatch, newVe
 
 	var oldAIH [32]byte
 	copy(oldAIH[:], finalproof.Public.PublicInputs.OldAccInputHash)
-	
+
 	var newAIH [32]byte
 	copy(newAIH[:], finalproof.Public.NewAccInputHash)
 
-	packedHotShotParams := polygonzkevm.PolygonZkEVMPackedHotShotParams {
-		OldAccInputHash : oldAIH,
-		NewAccInputHash : newAIH,
-		CommProof : []byte{}, // TODO: Not yet implemented
+	packedHotShotParams := polygonzkevm.PolygonZkEVMPackedHotShotParams{
+		OldAccInputHash: oldAIH,
+		NewAccInputHash: newAIH,
+		CommProof:       []byte{}, // TODO: Not yet implemented
 	}
 
 	tx, err := etherMan.PoE.VerifyBatchesTrustedAggregator(
@@ -540,9 +541,9 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 		// TODO: error handling
 
 		newBatchData := PolygonZkEVMBatchData{
-			Transactions:       txns,
-			GlobalExitRoot:     ger,
-			Timestamp:          l1Block.Time(),
+			Transactions:   txns,
+			GlobalExitRoot: ger,
+			Timestamp:      l1Block.Time(),
 		}
 
 		bn := firstNewBatch + i
