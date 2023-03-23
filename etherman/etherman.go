@@ -2,7 +2,6 @@ package etherman
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -21,6 +20,7 @@ import (
 	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/polygonzkevm"
 	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/polygonzkevmglobalexitroot"
 	ethmanTypes "github.com/0xPolygonHermez/zkevm-node/etherman/types"
+	"github.com/0xPolygonHermez/zkevm-node/hex"
 	"github.com/0xPolygonHermez/zkevm-node/log"
 	"github.com/0xPolygonHermez/zkevm-node/state"
 	"github.com/0xPolygonHermez/zkevm-node/test/operations"
@@ -540,8 +540,16 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 		if err != nil {
 			log.Error(err.Error())
 		}
-		txns, _ := io.ReadAll(response.Body)
-		// TODO: error handling
+		bytes, _ := io.ReadAll(response.Body)
+		if err != nil {
+			log.Error(err.Error())
+			// TODO: error handling
+		}
+		txns, _ := hex.DecodeHex(string(bytes))
+		if err != nil {
+			log.Error(err.Error())
+			// TODO: error handling
+		}
 
 		newBatchData := PolygonZkEVMBatchData{
 			Transactions:   txns,
