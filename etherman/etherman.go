@@ -549,7 +549,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 			Timestamp:      l1Block.Time(),
 		}
 
-		bn := firstNewBatchNum + i
+		bn := firstNewBatchNum + i + 1
 		sequencedBatches[i] = SequencedBatch{
 			BatchNumber:           bn,
 			SequencerAddr:         sequencer,
