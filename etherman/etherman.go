@@ -538,11 +538,11 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 		curBatchNumStr := strconv.FormatUint(curBatchNum, 10)
 		url := etherMan.cfg.HotShotQueryServiceURL + "/availability/block/" + curBatchNumStr
 		response, err := http.Get(url)
-		if response.StatusCode != 200 {
-			panic(response.Body) // TODO: error handling
-		}
 		if err != nil {
 			panic(err) // TODO: error handling
+		}
+		if response.StatusCode != 200 {
+			panic(response.Body) // TODO: error handling
 		}
 
 		var hexStr string
