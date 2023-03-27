@@ -2,9 +2,9 @@ package etherman
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"math"
 	"math/big"
@@ -535,20 +535,27 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 		curBatchNum := firstNewBatchNum + i
 
 		// Get transactions from HSQS
-		url := etherMan.cfg.HotShotQueryServiceURL + "/block/" + strconv.FormatUint(curBatchNum, 10)
+		curBatchNumStr := strconv.FormatUint(curBatchNum, 10)
+		url := etherMan.cfg.HotShotQueryServiceURL + "/availability/block/" + curBatchNumStr
 		response, err := http.Get(url)
-		if err != nil {
-			log.Error(err.Error())
+		if response.StatusCode != 200 {
+			panic(response.Body) // TODO: error handling
 		}
-		bytes, _ := io.ReadAll(response.Body)
 		if err != nil {
-			log.Error(err.Error())
-			// TODO: error handling
+			panic(err) // TODO: error handling
 		}
-		txns, _ := hex.DecodeHex(string(bytes))
+
+		var hexStr string
+		err = json.NewDecoder(response.Body).Decode(&hexStr)
 		if err != nil {
-			log.Error(err.Error())
-			// TODO: error handling
+			panic(err) // TODO: error handling
+		}
+
+		log.Info("Transactions for batch ", curBatchNumStr, ": ", hexStr)
+		txns, err := hex.DecodeHex(hexStr)
+
+		if err != nil {
+			panic(err) // TODO: error handling
 		}
 
 		newBatchData := PolygonZkEVMBatchData{
