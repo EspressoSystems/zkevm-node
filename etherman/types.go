@@ -3,7 +3,6 @@ package etherman
 import (
 	"time"
 
-	"github.com/0xPolygonHermez/zkevm-node/etherman/smartcontracts/polygonzkevm"
 	"github.com/ethereum/go-ethereum/common"
 )
 
@@ -16,7 +15,6 @@ type Block struct {
 	ForcedBatches         []ForcedBatch
 	SequencedBatches      [][]SequencedBatch
 	VerifiedBatches       []VerifiedBatch
-	SequencedForceBatches [][]SequencedForceBatch
 	ReceivedAt            time.Time
 }
 
@@ -35,7 +33,7 @@ type SequencedBatch struct {
 	TxHash        common.Hash
 	Nonce         uint64
 	Coinbase      common.Address
-	polygonzkevm.PolygonZkEVMBatchData
+	PolygonZkEVMBatchData
 }
 
 // ForcedBatch represents a ForcedBatch
@@ -57,12 +55,9 @@ type VerifiedBatch struct {
 	TxHash      common.Hash
 }
 
-// SequencedForceBatch is a sturct to track the ForceSequencedBatches event.
-type SequencedForceBatch struct {
-	BatchNumber uint64
-	Coinbase    common.Address
-	TxHash      common.Hash
-	Timestamp   time.Time
-	Nonce       uint64
-	polygonzkevm.PolygonZkEVMForcedBatchData
+// Copied from binding for a previous iteration of the contract
+type PolygonZkEVMBatchData struct {
+	Transactions       []byte
+	GlobalExitRoot     [32]byte
+	Timestamp          uint64
 }

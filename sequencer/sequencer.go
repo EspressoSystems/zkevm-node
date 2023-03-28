@@ -164,11 +164,8 @@ func (s *Sequencer) Start(ctx context.Context) {
 	defer tickerProcessTxs.Stop()
 	defer tickerSendSequence.Stop()
 
-	go func() {
-		for {
-			s.tryToSendSequence(ctx, tickerSendSequence)
-		}
-	}()
+	// (Removed sequencer init that used to be here)
+
 	// Wait until context is done
 	<-ctx.Done()
 }

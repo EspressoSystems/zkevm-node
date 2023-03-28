@@ -22,6 +22,11 @@
 				"type": "address"
 			},
 			{
+				"internalType": "contract IHotShot",
+				"name": "_hotshotAddress",
+				"type": "address"
+			},
+			{
 				"internalType": "uint64",
 				"name": "_chainID",
 				"type": "uint64"
@@ -719,24 +724,6 @@
 	{
 		"inputs": [
 			{
-				"internalType": "bytes",
-				"name": "transactions",
-				"type": "bytes"
-			},
-			{
-				"internalType": "uint256",
-				"name": "maticAmount",
-				"type": "uint256"
-			}
-		],
-		"name": "forceBatch",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
 				"internalType": "uint64",
 				"name": "",
 				"type": "uint64"
@@ -837,6 +824,19 @@
 		"outputs": [
 			{
 				"internalType": "contract IPolygonZkEVMGlobalExitRoot",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "hotShot",
+		"outputs": [
+			{
+				"internalType": "contract IHotShot",
 				"name": "",
 				"type": "address"
 			}
@@ -1268,76 +1268,6 @@
 	{
 		"inputs": [
 			{
-				"components": [
-					{
-						"internalType": "bytes",
-						"name": "transactions",
-						"type": "bytes"
-					},
-					{
-						"internalType": "bytes32",
-						"name": "globalExitRoot",
-						"type": "bytes32"
-					},
-					{
-						"internalType": "uint64",
-						"name": "timestamp",
-						"type": "uint64"
-					},
-					{
-						"internalType": "uint64",
-						"name": "minForcedTimestamp",
-						"type": "uint64"
-					}
-				],
-				"internalType": "struct PolygonZkEVM.BatchData[]",
-				"name": "batches",
-				"type": "tuple[]"
-			},
-			{
-				"internalType": "address",
-				"name": "l2Coinbase",
-				"type": "address"
-			}
-		],
-		"name": "sequenceBatches",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"components": [
-					{
-						"internalType": "bytes",
-						"name": "transactions",
-						"type": "bytes"
-					},
-					{
-						"internalType": "bytes32",
-						"name": "globalExitRoot",
-						"type": "bytes32"
-					},
-					{
-						"internalType": "uint64",
-						"name": "minForcedTimestamp",
-						"type": "uint64"
-					}
-				],
-				"internalType": "struct PolygonZkEVM.ForcedBatchData[]",
-				"name": "batches",
-				"type": "tuple[]"
-			}
-		],
-		"name": "sequenceForceBatches",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
 				"internalType": "uint64",
 				"name": "",
 				"type": "uint64"
@@ -1587,6 +1517,28 @@
 				"internalType": "uint256[2]",
 				"name": "proofC",
 				"type": "uint256[2]"
+			},
+			{
+				"components": [
+					{
+						"internalType": "bytes32",
+						"name": "oldAccInputHash",
+						"type": "bytes32"
+					},
+					{
+						"internalType": "bytes32",
+						"name": "newAccInputHash",
+						"type": "bytes32"
+					},
+					{
+						"internalType": "bytes",
+						"name": "commProof",
+						"type": "bytes"
+					}
+				],
+				"internalType": "struct PolygonZkEVM.PackedHotShotParams",
+				"name": "packedHotShotParams",
+				"type": "tuple"
 			}
 		],
 		"name": "verifyBatches",
@@ -1635,6 +1587,28 @@
 				"internalType": "uint256[2]",
 				"name": "proofC",
 				"type": "uint256[2]"
+			},
+			{
+				"components": [
+					{
+						"internalType": "bytes32",
+						"name": "oldAccInputHash",
+						"type": "bytes32"
+					},
+					{
+						"internalType": "bytes32",
+						"name": "newAccInputHash",
+						"type": "bytes32"
+					},
+					{
+						"internalType": "bytes",
+						"name": "commProof",
+						"type": "bytes"
+					}
+				],
+				"internalType": "struct PolygonZkEVM.PackedHotShotParams",
+				"name": "packedHotShotParams",
+				"type": "tuple"
 			}
 		],
 		"name": "verifyBatchesTrustedAggregator",

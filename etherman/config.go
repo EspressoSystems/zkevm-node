@@ -13,10 +13,13 @@ type Config struct {
 	PoEAddr                   common.Address `mapstructure:"PoEAddr"`
 	MaticAddr                 common.Address `mapstructure:"MaticAddr"`
 	GlobalExitRootManagerAddr common.Address `mapstructure:"GlobalExitRootManagerAddr"`
+	HotShotAddr               common.Address `mapstructure:"HotShotAddr"`
 
 	PrivateKeyPath     string `mapstructure:"PrivateKeyPath"`
 	PrivateKeyPassword string `mapstructure:"PrivateKeyPassword"`
 
 	MultiGasProvider bool `mapstructure:"MultiGasProvider"`
 	Etherscan        etherscan.Config
+
+	HotShotQueryServiceURL string `mapstructure:"HotShotQueryServiceURL"`
 }
