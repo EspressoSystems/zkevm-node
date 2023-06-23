@@ -17,14 +17,14 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/prometheus/client_model v0.3.0
 	github.com/prometheus/common v0.39.0
-	github.com/rubenv/sql-migrate v0.0.0-20211023115951-9f02b1e13857
+	github.com/rubenv/sql-migrate v1.5.1
 	github.com/spf13/afero v1.9.3
 	github.com/spf13/viper v1.15.0
 	github.com/stretchr/testify v1.8.1
 	github.com/umbracle/ethgo v0.1.3
 	github.com/urfave/cli/v2 v2.24.3
 	go.uber.org/zap v1.24.0
-	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
+	golang.org/x/crypto v0.5.0
 	golang.org/x/sync v0.1.0
 	google.golang.org/grpc v1.53.0
 	google.golang.org/protobuf v1.28.1
@@ -50,6 +50,7 @@ require (
 	github.com/emirpasic/gods v1.12.0 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/go-git/gcfg v1.5.0 // indirect
+	github.com/go-gorp/gorp/v3 v3.1.0 // indirect
 	github.com/go-kit/kit v0.9.0 // indirect
 	github.com/go-ole/go-ole v1.2.1 // indirect
 	github.com/go-pkgz/expirable-cache v0.0.3 // indirect
@@ -111,7 +112,6 @@ require (
 	golang.org/x/text v0.6.0 // indirect
 	golang.org/x/time v0.1.0 // indirect
 	google.golang.org/genproto v0.0.0-20230110181048-76db0878b65f // indirect
-	gopkg.in/gorp.v1 v1.7.2 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/natefinch/npipe.v2 v2.0.0-20160621034901-c1b8fa8bdcce // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
@@ -125,7 +125,5 @@ require (
 
 require (
 	github.com/imdario/mergo v0.3.13 // indirect
-	github.com/lib/pq v1.10.7 // indirect
 	github.com/prometheus/client_golang v1.14.0
-	github.com/ziutek/mymysql v1.5.4 // indirect
 )
