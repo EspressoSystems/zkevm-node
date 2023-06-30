@@ -545,7 +545,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 			return nil, err
 		}
 		if response.StatusCode != 200 {
-			return nil, err
+			return nil, fmt.Errorf("Query service responded with status code %d", response.StatusCode)
 		}
 
 		var hexStr string
