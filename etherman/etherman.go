@@ -525,7 +525,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 	ger, err := etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1BlockNum})
 
 	if err != nil {
-		// Error handling
+		return nil, err
 	}
 
 	// TODO: Should this change between HotShot blocks?
@@ -534,28 +534,33 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 	for i := uint64(0); i < numNewBatches; i++ {
 		curBatchNum := firstNewBatchNum + i
 
-		// Get transactions from HSQS
+		// Get transactions from HotShot query service
 		curBatchNumStr := strconv.FormatUint(curBatchNum, 10)
 		url := etherMan.cfg.HotShotQueryServiceURL + "/availability/block/" + curBatchNumStr
 		response, err := http.Get(url)
 		if err != nil {
-			panic(err) // TODO: error handling
+			// Usually this means the hotshot query service is not yet running.
+			// Returning the error here will cause the processing of the batch to be
+			// retried.
+			return nil, err
 		}
 		if response.StatusCode != 200 {
-			panic(response.Body) // TODO: error handling
+			return nil, err
 		}
 
 		var hexStr string
 		err = json.NewDecoder(response.Body).Decode(&hexStr)
 		if err != nil {
-			panic(err) // TODO: error handling
+			// It's unilkely we can recover from this error by retrying.
+			panic(err)
 		}
 
 		log.Info("Transactions for batch ", curBatchNumStr, ": ", hexStr)
 		txns, err := hex.DecodeHex(hexStr)
 
 		if err != nil {
-			panic(err) // TODO: error handling
+			// It's unilkely we can recover from this error by retrying.
+			panic(err)
 		}
 
 		newBatchData := PolygonZkEVMBatchData{
