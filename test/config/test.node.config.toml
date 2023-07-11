@@ -33,6 +33,7 @@ MaticAddr = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 GlobalExitRootManagerAddr = "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853"
 HotShotAddr = "0x0000000000000000000000000000000000000000"
 HotShotQueryServiceURL = "NOT_SET"
+UsePreconfirmations = false
 L1ChainID = 1337
 MultiGasProvider = false
 	[Etherscan]

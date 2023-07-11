@@ -285,7 +285,14 @@ func (etherMan *Client) readEvents(ctx context.Context, query ethereum.FilterQue
 func (etherMan *Client) processEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	switch vLog.Topics[0] {
 	case newBlocksSignatureHash:
-		return etherMan.newBlocksEvent(ctx, vLog, blocks, blocksOrder)
+		if etherMan.cfg.UsePreconfirmations {
+			// When using preconfirmations, we get information at new blocks directly from the
+			// sequencer, so we can ignore events indicating that new blocks have been received on
+			// L1 (which happens later).
+			return nil
+		} else {
+			return etherMan.newBlocksEvent(ctx, vLog, blocks, blocksOrder)
+		}
 	case updateGlobalExitRootSignatureHash:
 		return etherMan.updateGlobalExitRootEvent(ctx, vLog, blocks, blocksOrder)
 	case verifyBatchesTrustedAggregatorSignatureHash:
@@ -510,6 +517,24 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, bloc
 	return nil
 }
 
+func (etherMan *Client) l1BlockFromL2Block(ctx context.Context, l2Block SequencerBlock) (*types.Block, error) {
+	// Each L2 block must be associated with a unique L1 block, so that we know which global exit
+	// root (maintained on L1) to use when executing bridge withdrawals on L2. In the original
+	// Polygon zkEVM, this association is determined whenever an L2 batch is sequenced on L1. This
+	// design makes it impossible to use the HotShot sequencer for fast preconfirmations, because
+	// even though a canonical ordering of L2 blocks is determined quickly, we cannot execute those
+	// blocks until they have been persisted on L1, which can be slow.
+	//
+	// To enable fast preconfirmations, we redefine the way in which L2 blocks get associated with
+	// L1 blocks. Each time an L2 block is _sequenced_, the HotShot consensus protocol assigns it an
+	// L1 block number, which is guaranteed to be a recent L1 block number by a quorum of the stake.
+	// This means each L2 block is *immediately* associated with an L1 block in a determinstic and
+	// unequivocal way. We use this association when executing the block and later when proving it,
+	// so there is no need to wait for the block to be sent to L1 in order to compute the resulting
+	// state.
+	return etherMan.EthBlockByNumber(ctx, l2Block.L1Block)
+}
+
 func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byte, newBlocks ihotshot.IhotshotNewBlocks, sequencer common.Address, nonce uint64) ([]SequencedBatch, error) {
 
 	// Get number of batches by parsing transaction
@@ -519,18 +544,6 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 	var txHash common.Hash = newBlocks.Raw.TxHash
 
 	sequencedBatches := make([]SequencedBatch, numNewBatches)
-	l1BlockNum := new(big.Int).SetUint64(newBlocks.Raw.BlockNumber)
-
-	// TODO: Should this change between HotShot blocks?
-	ger, err := etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1BlockNum})
-
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: Should this change between HotShot blocks?
-	l1Block, _ := etherMan.EthClient.BlockByNumber(ctx, l1BlockNum)
-
 	for i := uint64(0); i < numNewBatches; i++ {
 		curBatchNum := firstNewBatchNum + i
 
@@ -548,19 +561,30 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 			return nil, fmt.Errorf("Query service responded with status code %d", response.StatusCode)
 		}
 
-		var hexStr string
-		err = json.NewDecoder(response.Body).Decode(&hexStr)
+		var l2Block SequencerBlock
+		err = json.NewDecoder(response.Body).Decode(&l2Block)
 		if err != nil {
 			// It's unilkely we can recover from this error by retrying.
 			panic(err)
 		}
 
-		log.Info("Transactions for batch ", curBatchNumStr, ": ", hexStr)
-		txns, err := hex.DecodeHex(hexStr)
+		log.Info("Transactions for batch ", curBatchNumStr, ": ", l2Block.Transactions)
+		txns, err := hex.DecodeHex(l2Block.Transactions)
 
 		if err != nil {
 			// It's unilkely we can recover from this error by retrying.
 			panic(err)
+		}
+
+		// Fetch L1 state corresponding to this L2 block (e.g. global exit root)
+		l1Block, err := etherMan.l1BlockFromL2Block(ctx, l2Block)
+		if err != nil {
+			return nil, err
+		}
+		ger, err := etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1Block.Number()})
+
+		if err != nil {
+			return nil, err
 		}
 
 		newBatchData := PolygonZkEVMBatchData{

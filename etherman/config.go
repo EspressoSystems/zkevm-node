@@ -22,4 +22,5 @@ type Config struct {
 	Etherscan        etherscan.Config
 
 	HotShotQueryServiceURL string `mapstructure:"HotShotQueryServiceURL"`
+	UsePreconfirmations bool `mapstructure:"UsePreconfirmations"`
 }

@@ -6,6 +6,15 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
+// Block of L2 transactions produced by the HotShot sequencer
+type SequencerBlock struct {
+	Timestamp  			  uint64 `json:"timestamp"`
+	Height 				  uint64 `json:"height"`
+	L1Block 			  uint64 `json:"l1_block"`
+	// Transactions are a blob of data encoded as hex
+	Transactions 	      string `json:"transactions"`
+}
+
 // Block struct
 type Block struct {
 	BlockNumber           uint64
