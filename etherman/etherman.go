@@ -495,7 +495,7 @@ func (etherMan *Client) getMaxPreconfirmation() (uint64, error) {
 	return blockHeight, nil
 }
 
-func (etherMan *Client) GetPreconfirmationsByBlockRange(ctx context.Context, fromL2Block uint64, toL1Block *uint64, blocks *[]Block, order *map[common.Hash][]Order) error {
+func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Block uint64, blocks *[]Block, order *map[common.Hash][]Order) error {
 	l2BlockHeight, err := etherMan.getMaxPreconfirmation()
 	if err != nil {
 		return err
@@ -511,10 +511,6 @@ func (etherMan *Client) GetPreconfirmationsByBlockRange(ctx context.Context, fro
 		err := etherMan.fetchL2Block(ctx, l2BlockNum, &batch, &l1Block)
 		if err != nil {
 			return err
-		}
-		if toL1Block != nil && l1Block.Number().Uint64() > *toL1Block {
-			// We have gone past the block range we're interested in.
-			break
 		}
 		l1BlockNum := l1Block.Number().Uint64()
 		l1BlockHash := l1Block.Hash()

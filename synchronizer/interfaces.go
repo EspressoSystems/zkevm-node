@@ -20,7 +20,7 @@ type ethermanInterface interface {
 	GetLatestBatchNumber() (uint64, error)
 	GetTrustedSequencerURL() (string, error)
 	VerifyGenBlockNumber(ctx context.Context, genBlockNumber uint64) (bool, error)
-	GetPreconfirmationsByBlockRange(ctx context.Context, fromL2Block uint64, toL1Block *uint64, blocks *[]etherman.Block, order *map[common.Hash][]etherman.Order) error
+	GetPreconfirmations(ctx context.Context, fromL2Block uint64, blocks *[]etherman.Block, order *map[common.Hash][]etherman.Order) error
 }
 
 // stateInterface gathers the methods required to interact with the state.

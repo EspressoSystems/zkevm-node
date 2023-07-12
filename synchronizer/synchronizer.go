@@ -283,7 +283,7 @@ func (s *ClientSynchronizer) syncPreconfirmations() error {
 		// Fetch new preconfirmed blocks from the sequencer.
 		var blocks []etherman.Block
 		order := make(map[common.Hash][]etherman.Order)
-		err = s.etherMan.GetPreconfirmationsByBlockRange(s.ctx, latestSyncedBatch, nil, &blocks, &order)
+		err = s.etherMan.GetPreconfirmations(s.ctx, latestSyncedBatch, &blocks, &order)
 		if err != nil {
 			log.Warn("error getting preconfirmations. Error: ", err)
 			return err
