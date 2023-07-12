@@ -20,7 +20,11 @@ const maxTopics = 4
 const (
 	addGlobalExitRootSQL                     = "INSERT INTO state.exit_root (block_num, timestamp, mainnet_exit_root, rollup_exit_root, global_exit_root) VALUES ($1, $2, $3, $4, $5)"
 	getLatestExitRootBlockNumSQL             = "SELECT block_num FROM state.exit_root ORDER BY id DESC LIMIT 1"
-	addBlockSQL                              = "INSERT INTO state.block (block_num, block_hash, parent_hash, received_at) VALUES ($1, $2, $3, $4)"
+	// When using preconfirmations, there are two streams that might add an L1 block: the L1
+	// synchronizer and the preconfirmations synchronizer. We need this insert statement not to fail
+	// when one stream tries to insert a block that the other stream has already added. Hence, the
+	// `WHERE NOT EXISTS` clause, to silently do nothing when the block already exists.
+	addBlockSQL                              = "INSERT INTO state.block (block_num, block_hash, parent_hash, received_at) SELECT $1, $2, $3, $4 WHERE NOT EXISTS (SELECT block_num FROM state.block WHERE block_num = $1)"
 	getLastBlockSQL                          = "SELECT block_num, block_hash, parent_hash, received_at FROM state.block ORDER BY block_num DESC LIMIT 1"
 	getPreviousBlockSQL                      = "SELECT block_num, block_hash, parent_hash, received_at FROM state.block ORDER BY block_num DESC LIMIT 1 OFFSET $1"
 	getLastBatchNumberSQL                    = "SELECT batch_num FROM state.batch ORDER BY batch_num DESC LIMIT 1"

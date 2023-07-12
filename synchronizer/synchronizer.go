@@ -121,6 +121,21 @@ func (s *ClientSynchronizer) Sync() error {
 		log.Fatalf("error committing dbTx, err: %w", err)
 	}
 
+	if s.usePreconfirmations() {
+		go func() {
+			for {
+				select {
+				case <-s.ctx.Done():
+					return
+				case <-time.After(s.cfg.PreconfirmationsSyncInterval.Duration):
+					if err = s.syncPreconfirmations(); err != nil {
+						log.Warn("error syncing preconfirmations: ", err)
+					}
+				}
+			}
+		}()
+	}
+
 	for {
 		select {
 		case <-s.ctx.Done():
@@ -155,6 +170,10 @@ func (s *ClientSynchronizer) Sync() error {
 			}
 		}
 	}
+}
+
+func (s *ClientSynchronizer) usePreconfirmations() bool {
+	return s.cfg.PreconfirmationsSyncInterval.Duration != 0
 }
 
 // This function syncs the node from a specific block to the latest
@@ -195,7 +214,7 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 		// Name can be defferent in the order struct. For instance: Batches or Name:NewSequencers. This name is an identifier to check
 		// if the next info that must be stored in the db is a new sequencer or a batch. The value pos (position) tells what is the
 		// array index where this value is.
-		blocks, order, err := s.etherMan.GetRollupInfoByBlockRange(s.ctx, fromBlock, &toBlock)
+		blocks, order, err := s.etherMan.GetRollupInfoByBlockRange(s.ctx, fromBlock, &toBlock, s.usePreconfirmations())
 		if err != nil {
 			return lastEthBlockSynced, err
 		}
@@ -248,6 +267,37 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 	}
 
 	return lastEthBlockSynced, nil
+}
+
+func (s *ClientSynchronizer) syncPreconfirmations() error {
+	for {
+		// Figure out where to start from: what is the first L2 block we haven't synchronized yet?
+		// This is the same as the last synchronized batch number, since L2 block numbers and batch
+		// numbers are offset by 1.
+		latestSyncedBatch, err := s.state.GetLastBatchNumber(s.ctx, nil)
+		if err != nil {
+			log.Warn("error getting latest batch synced. Error: ", err)
+			return err
+		}
+
+		// Fetch new preconfirmed blocks from the sequencer.
+		var blocks []etherman.Block
+		order := make(map[common.Hash][]etherman.Order)
+		err = s.etherMan.GetPreconfirmationsByBlockRange(s.ctx, latestSyncedBatch, nil, &blocks, &order)
+		if err != nil {
+			log.Warn("error getting preconfirmations. Error: ", err)
+			return err
+		}
+		if len(blocks) == 0 {
+			// If there are no new blocks, exit so we can sleep and retry a bit later.
+			return nil
+		}
+
+		err = s.processBlockRange(blocks, order)
+		if err != nil {
+			return err
+		}
+	}
 }
 
 // syncTrustedState synchronizes information from the trusted sequencer
