@@ -15,4 +15,6 @@ type Config struct {
 	SyncChunkSize uint64 `mapstructure:"SyncChunkSize"`
 
 	GenBlockNumber uint64 `mapstructure:"GenBlockNumber"`
+
+	IgnoreGenBlockNumberCheck bool `mapstructure:"IgnoreGenBlockNumberCheck"`
 }

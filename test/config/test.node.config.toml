@@ -56,6 +56,7 @@ SyncInterval = "1s"
 PreconfirmationsSyncInterval = "0s" # 0 turns preconfirmations off
 SyncChunkSize = 100
 GenBlockNumber = 63
+IgnoreGenBlockNumberCheck = false
 
 [Sequencer]
 MaxSequenceSize = "2000000"
