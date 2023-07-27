@@ -619,6 +619,7 @@ func (e *EthEndpoints) SendRawTransaction(input string) (interface{}, rpcError) 
 func (e *EthEndpoints) relayTxToSequencerNode(input string) (interface{}, rpcError) {
 	res, err := JSONRPCCall(e.cfg.SequencerNodeURI, "eth_sendRawTransaction", input)
 	if err != nil {
+		log.Errorf("failed to relay tx to the sequencer node", err)
 		return rpcErrorResponse(defaultErrorCode, "failed to relay tx to the sequencer node", err)
 	}
 
