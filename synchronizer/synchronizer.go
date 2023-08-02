@@ -474,6 +474,7 @@ func (s *ClientSynchronizer) checkReorg(latestBlock *state.Block) (*state.Block,
 		}
 		// Compare hashes
 		if (block.Hash() != latestBlock.BlockHash || block.ParentHash() != latestBlock.ParentHash) && latestBlock.BlockNumber > s.cfg.GenBlockNumber {
+			log.Info("reorg at height ", latestBlock.BlockNumber, " have hash ", latestBlock.BlockHash, " actual hash ", block.Hash(), " header %v", block.Header())
 			log.Debug("[checkReorg function] => latestBlockNumber: ", latestBlock.BlockNumber)
 			log.Debug("[checkReorg function] => latestBlockHash: ", latestBlock.BlockHash)
 			log.Debug("[checkReorg function] => latestBlockHashParent: ", latestBlock.ParentHash)
