@@ -14,5 +14,5 @@ type Config struct {
 	PrivateKeys []types.KeystoreFileConfig `mapstructure:"PrivateKeys"`
 
 	// How often to poll for transaction receipts when monitoring.
-	PollInterval types.Duration `mapstructure:"PollingInterval"`
+	PollingInterval types.Duration `mapstructure:"PollingInterval"`
 }
