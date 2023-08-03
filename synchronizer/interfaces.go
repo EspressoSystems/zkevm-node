@@ -15,11 +15,12 @@ import (
 // ethermanInterface contains the methods required to interact with ethereum.
 type ethermanInterface interface {
 	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
-	GetRollupInfoByBlockRange(ctx context.Context, fromBlock uint64, toBlock *uint64) ([]etherman.Block, map[common.Hash][]etherman.Order, error)
+	GetRollupInfoByBlockRange(ctx context.Context, fromBlock uint64, toBlock *uint64, usePreconfirmations bool) ([]etherman.Block, map[common.Hash][]etherman.Order, error)
 	EthBlockByNumber(ctx context.Context, blockNumber uint64) (*types.Block, error)
 	GetLatestBatchNumber() (uint64, error)
 	GetTrustedSequencerURL() (string, error)
 	VerifyGenBlockNumber(ctx context.Context, genBlockNumber uint64) (bool, error)
+	GetPreconfirmations(ctx context.Context, fromL2Block uint64) ([]etherman.Block, map[common.Hash][]etherman.Order, error)
 }
 
 // stateInterface gathers the methods required to interact with the state.

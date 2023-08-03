@@ -244,7 +244,7 @@ func (etherMan *Client) GetForks(ctx context.Context) ([]state.ForkIDInterval, e
 
 // GetRollupInfoByBlockRange function retrieves the Rollup information that are included in all this ethereum blocks
 // from block x to block y.
-func (etherMan *Client) GetRollupInfoByBlockRange(ctx context.Context, fromBlock uint64, toBlock *uint64) ([]Block, map[common.Hash][]Order, error) {
+func (etherMan *Client) GetRollupInfoByBlockRange(ctx context.Context, fromBlock uint64, toBlock *uint64, usePreconfirmations bool) ([]Block, map[common.Hash][]Order, error) {
 	// Filter query
 	query := ethereum.FilterQuery{
 		FromBlock: new(big.Int).SetUint64(fromBlock),
@@ -253,7 +253,7 @@ func (etherMan *Client) GetRollupInfoByBlockRange(ctx context.Context, fromBlock
 	if toBlock != nil {
 		query.ToBlock = new(big.Int).SetUint64(*toBlock)
 	}
-	blocks, blocksOrder, err := etherMan.readEvents(ctx, query)
+	blocks, blocksOrder, err := etherMan.readEvents(ctx, query, usePreconfirmations)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -266,7 +266,7 @@ type Order struct {
 	Pos  int
 }
 
-func (etherMan *Client) readEvents(ctx context.Context, query ethereum.FilterQuery) ([]Block, map[common.Hash][]Order, error) {
+func (etherMan *Client) readEvents(ctx context.Context, query ethereum.FilterQuery, usePreconfirmations bool) ([]Block, map[common.Hash][]Order, error) {
 	logs, err := etherMan.EthClient.FilterLogs(ctx, query)
 	if err != nil {
 		return nil, nil, err
@@ -274,7 +274,7 @@ func (etherMan *Client) readEvents(ctx context.Context, query ethereum.FilterQue
 	var blocks []Block
 	blocksOrder := make(map[common.Hash][]Order)
 	for _, vLog := range logs {
-		err := etherMan.processEvent(ctx, vLog, &blocks, &blocksOrder)
+		err := etherMan.processEvent(ctx, vLog, &blocks, &blocksOrder, usePreconfirmations)
 		if err != nil {
 			log.Warnf("error processing event. Retrying... Error: %s. vLog: %+v", err.Error(), vLog)
 			return nil, nil, err
@@ -283,10 +283,17 @@ func (etherMan *Client) readEvents(ctx context.Context, query ethereum.FilterQue
 	return blocks, blocksOrder, nil
 }
 
-func (etherMan *Client) processEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
+func (etherMan *Client) processEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order, usePreconfirmations bool) error {
 	switch vLog.Topics[0] {
 	case newBlocksSignatureHash:
-		return etherMan.newBlocksEvent(ctx, vLog, blocks, blocksOrder)
+		if usePreconfirmations {
+			// When using preconfirmations, we get information about new blocks directly from the
+			// sequencer, so we can ignore events indicating that new blocks have been received on
+			// L1 (which happens later).
+			return nil
+		} else {
+			return etherMan.newBlocksEvent(ctx, vLog, blocks, blocksOrder)
+		}
 	case updateGlobalExitRootSignatureHash:
 		return etherMan.updateGlobalExitRootEvent(ctx, vLog, blocks, blocksOrder)
 	case verifyBatchesTrustedAggregatorSignatureHash:
@@ -352,8 +359,7 @@ func (etherMan *Client) updateGlobalExitRootEvent(ctx context.Context, vLog type
 	gExitRoot.GlobalExitRoot = hash(globalExitRoot.MainnetExitRoot, globalExitRoot.RollupExitRoot)
 
 	if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-		t := time.Unix(int64(fullBlock.Time()), 0)
-		block := prepareBlock(vLog, t, fullBlock)
+		block := prepareBlock(fullBlock)
 		block.GlobalExitRoots = append(block.GlobalExitRoots, gExitRoot)
 		*blocks = append(*blocks, block)
 	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
@@ -467,6 +473,55 @@ func (etherMan *Client) TrustedSequencer() (common.Address, error) {
 	return etherMan.PoE.TrustedSequencer(&bind.CallOpts{Pending: false})
 }
 
+func (etherMan *Client) getMaxPreconfirmation() (uint64, error) {
+	url := etherMan.cfg.HotShotQueryServiceURL + "/availability/block-height"
+	response, err := http.Get(url)
+	if err != nil {
+		// Usually this means the hotshot query service is not yet running.
+		// Returning the error here will cause the processing of the batch to be
+		// retried.
+		return 0, err
+	}
+	if response.StatusCode != 200 {
+		return 0, fmt.Errorf("Query service responded with status code %d", response.StatusCode)
+	}
+
+	var blockHeight uint64
+	err = json.NewDecoder(response.Body).Decode(&blockHeight)
+	if err != nil {
+		// It's unlikely we can recover from this error by retrying.
+		panic(err)
+	}
+	return blockHeight, nil
+}
+
+func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Block uint64) ([]Block, map[common.Hash][]Order, error) {
+	l2BlockHeight, err := etherMan.getMaxPreconfirmation()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var blocks []Block
+	order := make(map[common.Hash][]Order)
+
+	log.Info("Getting L2 blocks in range ", fromL2Block, "-", l2BlockHeight)
+	for l2BlockNum := fromL2Block; l2BlockNum < l2BlockHeight; l2BlockNum++ {
+		var batch SequencedBatch
+		var l1BlockNum uint64
+		err = etherMan.fetchL2Block(ctx, l2BlockNum, &batch, &l1BlockNum)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		err = etherMan.appendSequencedBatches(ctx, []SequencedBatch{batch}, l1BlockNum, &blocks, &order)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return blocks, order, nil
+}
+
 func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	log.Debug("NewBlocks event detected")
 	newBlocks, err := etherMan.HotShot.ParseNewBlocks(vLog)
@@ -488,19 +543,26 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, bloc
 	if err != nil {
 		return fmt.Errorf("error decoding the sequences: %v", err)
 	}
+	err = etherMan.appendSequencedBatches(ctx, sequences, vLog.BlockNumber, blocks, blocksOrder)
+	if err != nil {
+		return err
+	}
+	return nil
+}
 
-	if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-		fullBlock, err := etherMan.EthClient.BlockByHash(ctx, vLog.BlockHash)
+func (etherMan *Client) appendSequencedBatches(ctx context.Context, sequences []SequencedBatch, blockNumber uint64, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
+	if len(*blocks) == 0 || (*blocks)[len(*blocks)-1].BlockNumber != blockNumber {
+		fullBlock, err := etherMan.EthBlockByNumber(ctx, blockNumber)
 		if err != nil {
-			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
+			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", blockNumber, err)
 		}
-		block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
+		block := prepareBlock(fullBlock)
 		block.SequencedBatches = append(block.SequencedBatches, sequences)
 		*blocks = append(*blocks, block)
-	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
+	} else if (*blocks)[len(*blocks)-1].BlockNumber == blockNumber {
 		(*blocks)[len(*blocks)-1].SequencedBatches = append((*blocks)[len(*blocks)-1].SequencedBatches, sequences)
 	} else {
-		log.Error("Error processing SequencedBatches event. BlockHash:", vLog.BlockHash, ". BlockNumber: ", vLog.BlockNumber)
+		log.Error("Error processing SequencedBatches event. BlockNumber: ", blockNumber)
 		return fmt.Errorf("error processing SequencedBatches event")
 	}
 	or := Order{
@@ -511,77 +573,122 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, bloc
 	return nil
 }
 
+func (etherMan *Client) l1BlockFromL2Block(ctx context.Context, l2Block SequencerBlock) (*types.Block, error) {
+	// Each L2 block must be associated with a unique L1 block, so that we know which global exit
+	// root (maintained on L1) to use when executing bridge withdrawals on L2. In the original
+	// Polygon zkEVM, this association is determined whenever an L2 batch is sequenced on L1. This
+	// design makes it impossible to use the HotShot sequencer for fast preconfirmations, because
+	// even though a canonical ordering of L2 blocks is determined quickly, we cannot execute those
+	// blocks until they have been persisted on L1, which can be slow.
+	//
+	// To enable fast preconfirmations, we redefine the way in which L2 blocks get associated with
+	// L1 blocks. Each time an L2 block is _sequenced_, the HotShot consensus protocol assigns it an
+	// L1 block number, which is guaranteed to be a recent L1 block number by a quorum of the stake.
+	// This means each L2 block is *immediately* associated with an L1 block in a determinstic and
+	// unequivocal way. We use this association when executing the block and later when proving it,
+	// so there is no need to wait for the block to be sent to L1 in order to compute the resulting
+	// state.
+	return etherMan.EthBlockByNumber(ctx, l2Block.L1Block)
+}
+
 func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byte, newBlocks ihotshot.IhotshotNewBlocks, sequencer common.Address, nonce uint64) ([]SequencedBatch, error) {
 
 	// Get number of batches by parsing transaction
 	numNewBatches := newBlocks.NumBlocks.Uint64()
 	firstNewBatchNum := newBlocks.FirstBlockNumber.Uint64()
 
-	var txHash common.Hash = newBlocks.Raw.TxHash
-
 	sequencedBatches := make([]SequencedBatch, numNewBatches)
-	l1BlockNum := new(big.Int).SetUint64(newBlocks.Raw.BlockNumber)
-
-	// TODO: Should this change between HotShot blocks?
-	ger, err := etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1BlockNum})
-
-	if err != nil {
-		return nil, err
-	}
-
-	// TODO: Should this change between HotShot blocks?
-	l1Block, _ := etherMan.EthClient.BlockByNumber(ctx, l1BlockNum)
-
 	for i := uint64(0); i < numNewBatches; i++ {
 		curBatchNum := firstNewBatchNum + i
-
-		// Get transactions from HotShot query service
-		curBatchNumStr := strconv.FormatUint(curBatchNum, 10)
-		url := etherMan.cfg.HotShotQueryServiceURL + "/availability/block/" + curBatchNumStr
-		response, err := http.Get(url)
+		err := etherMan.fetchL2Block(ctx, curBatchNum, &sequencedBatches[i], nil)
 		if err != nil {
-			// Usually this means the hotshot query service is not yet running.
-			// Returning the error here will cause the processing of the batch to be
-			// retried.
 			return nil, err
-		}
-		if response.StatusCode != 200 {
-			return nil, fmt.Errorf("Query service responded with status code %d", response.StatusCode)
-		}
-
-		var hexStr string
-		err = json.NewDecoder(response.Body).Decode(&hexStr)
-		if err != nil {
-			// It's unilkely we can recover from this error by retrying.
-			panic(err)
-		}
-
-		log.Info("Transactions for batch ", curBatchNumStr, ": ", hexStr)
-		txns, err := hex.DecodeHex(hexStr)
-
-		if err != nil {
-			// It's unilkely we can recover from this error by retrying.
-			panic(err)
-		}
-
-		newBatchData := PolygonZkEVMBatchData{
-			Transactions:   txns,
-			GlobalExitRoot: ger,
-			Timestamp:      l1Block.Time(),
-		}
-
-		bn := firstNewBatchNum + i + 1
-		sequencedBatches[i] = SequencedBatch{
-			BatchNumber:           bn,
-			SequencerAddr:         sequencer,
-			TxHash:                txHash,
-			Nonce:                 nonce,
-			Coinbase:              common.Address{}, // TODO: what address should we set?
-			PolygonZkEVMBatchData: newBatchData,     // BatchData info
 		}
 	}
 
 	return sequencedBatches, nil
+}
+
+func (etherMan *Client) fetchL2Block(ctx context.Context, l2BlockNum uint64, batch *SequencedBatch, l1BlockNum *uint64) (error) {
+	// Get transactions and metadata from HotShot query service
+	l2BlockNumStr := strconv.FormatUint(l2BlockNum, 10)
+	url := etherMan.cfg.HotShotQueryServiceURL + "/availability/block/" + l2BlockNumStr
+	response, err := http.Get(url)
+	if err != nil {
+		// Usually this means the hotshot query service is not yet running.
+		// Returning the error here will cause the processing of the batch to be
+		// retried.
+		return err
+	}
+	if response.StatusCode != 200 {
+		return fmt.Errorf("Query service responded with status code %d", response.StatusCode)
+	}
+
+	var l2Block SequencerBlock
+	err = json.NewDecoder(response.Body).Decode(&l2Block)
+	if err != nil {
+		// It's unlikely we can recover from this error by retrying.
+		panic(err)
+	}
+
+	log.Info("Fetched batch ", l2BlockNum, ": L1 block %v, timestamp %v, transactions ", l2Block.L1Block, l2Block.Timestamp, l2Block.Transactions)
+	txns, err := hex.DecodeHex(l2Block.Transactions)
+	if err != nil {
+		// It's unlikely we can recover from this error by retrying.
+		panic(err)
+	}
+
+	// Fetch L1 state corresponding to this L2 block (e.g. global exit root)
+	l1Block, err := etherMan.l1BlockFromL2Block(ctx, l2Block)
+	if err != nil {
+		return err
+	}
+
+	var ger [32]byte
+	code, err := etherMan.EthClient.CodeAt(ctx, etherMan.cfg.GlobalExitRootManagerAddr, l1Block.Number());
+	if err != nil {
+		return err
+	}
+	if len(code) == 0 {
+		// Since this L2 is deployed onto an already-running HotShot sequencer, there may be HotShot
+		// blocks from before the global exit root manager contract was deployed. These blocks
+		// should not contain any transactions for this L2, since they were created before the L2
+		// was deployed. In this case it doesn't matter what global exit root we use.
+		if len(txns) != 0 {
+			return fmt.Errorf("block %v (L1 block %v) contains L2 transactions from before GlobalExitRootManager was deployed", l2BlockNum, l1Block.Number())
+		}
+	} else {
+		ger, err = etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1Block.Number()})
+		if err != nil {
+			return err
+		}
+	}
+
+	newBatchData := PolygonZkEVMBatchData{
+		Transactions:   txns,
+		GlobalExitRoot: ger,
+		Timestamp:      l2Block.Timestamp,
+	}
+
+	*batch = SequencedBatch{
+		BatchNumber:           l2BlockNum + 1,
+		PolygonZkEVMBatchData: newBatchData,     // BatchData info
+
+		// Some metadata (in particular: information about the L1 transaction which sequenced this
+		// L2 batch in the rollup contract) is not available when using preconfirmations (since the
+		// L2 batch _hasn't_ been sent to the rollup contract yet). Thus, we fill it with dummy
+		// values. These values are not needed to compute the new L2 state or state transition
+		// proof, since the rollup VM does not expose them. They are simply informational.
+		SequencerAddr:         common.Address{},
+		TxHash:                common.Hash{},
+		Coinbase:              common.Address{},
+		Nonce:                 0,
+	}
+	if l1BlockNum != nil {
+		*l1BlockNum = l1Block.Number().Uint64()
+	}
+
+	return nil
 }
 
 func (etherMan *Client) verifyBatchesTrustedAggregatorEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
@@ -602,7 +709,7 @@ func (etherMan *Client) verifyBatchesTrustedAggregatorEvent(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 		}
-		block := prepareBlock(vLog, time.Unix(int64(fullBlock.Time()), 0), fullBlock)
+		block := prepareBlock(fullBlock)
 		block.VerifiedBatches = append(block.VerifiedBatches, trustedVerifyBatch)
 		*blocks = append(*blocks, block)
 	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
@@ -619,12 +726,12 @@ func (etherMan *Client) verifyBatchesTrustedAggregatorEvent(ctx context.Context,
 	return nil
 }
 
-func prepareBlock(vLog types.Log, t time.Time, fullBlock *types.Block) Block {
+func prepareBlock(fullBlock *types.Block) Block {
 	var block Block
-	block.BlockNumber = vLog.BlockNumber
-	block.BlockHash = vLog.BlockHash
+	block.BlockNumber = fullBlock.Number().Uint64()
+	block.BlockHash = fullBlock.Hash()
 	block.ParentHash = fullBlock.ParentHash()
-	block.ReceivedAt = t
+	block.ReceivedAt = time.Unix(int64(fullBlock.Time()), 0)
 	return block
 }
 
