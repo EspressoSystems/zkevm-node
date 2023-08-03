@@ -12,4 +12,7 @@ type Config struct {
 	// PrivateKeys defines all the key store files that are going
 	// to be read in order to provide the private keys to sign the L1 txs
 	PrivateKeys []types.KeystoreFileConfig `mapstructure:"PrivateKeys"`
+
+	// How often to poll for transaction receipts when monitoring.
+	PollInterval types.Duration `mapstructure:"PollingInterval"`
 }
