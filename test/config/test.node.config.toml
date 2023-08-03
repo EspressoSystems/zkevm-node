@@ -112,6 +112,7 @@ PrivateKeys = [
 	{Path = "/pk/sequencer.keystore", Password = "testonly"},
 	{Path = "/pk/aggregator.keystore", Password = "testonly"}
 ]
+PollInterval = "1s"
 
 [L2GasPriceSuggester]
 Type = "follower"
