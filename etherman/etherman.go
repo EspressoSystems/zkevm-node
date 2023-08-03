@@ -28,6 +28,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -479,11 +480,11 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, bloc
 	} else if isPending {
 		return fmt.Errorf("error tx is still pending. TxHash: %s", tx.Hash().String())
 	}
-	msg, err := tx.AsMessage(types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
+	msg, err := core.TransactionToMessage(tx, types.NewLondonSigner(tx.ChainId()), big.NewInt(0))
 	if err != nil {
 		return err
 	}
-	sequences, err := etherMan.decodeSequencesHotShot(ctx, tx.Data(), *newBlocks, msg.From(), msg.Nonce())
+	sequences, err := etherMan.decodeSequencesHotShot(ctx, tx.Data(), *newBlocks, msg.From, msg.Nonce)
 	if err != nil {
 		return fmt.Errorf("error decoding the sequences: %v", err)
 	}
