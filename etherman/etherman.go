@@ -522,15 +522,15 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 	sequencedBatches := make([]SequencedBatch, numNewBatches)
 	l1BlockNum := new(big.Int).SetUint64(newBlocks.Raw.BlockNumber)
 
-	// TODO: Should this change between HotShot blocks?
+	// Get L1 info for these L2 blocks
 	ger, err := etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1BlockNum})
-
 	if err != nil {
 		return nil, err
 	}
-
-	// TODO: Should this change between HotShot blocks?
-	l1Block, _ := etherMan.EthClient.BlockByNumber(ctx, l1BlockNum)
+	l1Block, err := etherMan.EthClient.BlockByNumber(ctx, l1BlockNum)
+	if err != nil {
+		return nil, err
+	}
 
 	for i := uint64(0); i < numNewBatches; i++ {
 		curBatchNum := firstNewBatchNum + i
