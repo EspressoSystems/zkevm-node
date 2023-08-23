@@ -547,7 +547,10 @@ func (s *State) ExecuteBatch(ctx context.Context, batch Batch, dbTx pgx.Tx) (*pb
 
 	processBatchResponse, err := s.executorClient.ProcessBatch(ctx, processBatchRequest)
 	if err != nil {
-		if processBatchResponse.Error != executor.EXECUTOR_ERROR_NO_ERROR {
+		if processBatchResponse == nil {
+			log.Errorf("error from executor without response: %v", err)
+			err = executor.ExecutorErr(executor.EXECUTOR_ERROR_UNSPECIFIED)
+		} else if processBatchResponse.Error != executor.EXECUTOR_ERROR_NO_ERROR {
 			err = executor.ExecutorErr(processBatchResponse.Error)
 			s.LogExecutorError(processBatchResponse.Error, processBatchRequest)
 		}
