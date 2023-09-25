@@ -499,7 +499,7 @@ func (etherMan *Client) getMaxPreconfirmation() (uint64, error) {
 }
 
 func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Block uint64) ([]Block, map[common.Hash][]Order, error) {
-	l2BlockHeight, err := etherMan.getMaxPreconfirmation()
+	hotShotBlockHeight, err := etherMan.getMaxPreconfirmation()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -507,21 +507,13 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Block uin
 	var blocks []Block
 	order := make(map[common.Hash][]Order)
 
-	log.Infof("Getting L2 blocks in range %d - %d", fromL2Block, l2BlockHeight)
-	for l2BlockNum := fromL2Block; l2BlockNum < l2BlockHeight; l2BlockNum++ {
+	fromHotShotBlock := fromL2Block + etherMan.cfg.GenesisHotShotBlockNumber + 1
+	log.Infof("Getting HotShot blocks in range %d - %d", fromHotShotBlock, hotShotBlockHeight)
+	for hotShotBlockNum := fromHotShotBlock; hotShotBlockNum < hotShotBlockHeight; hotShotBlockNum++ {
 		var batch SequencedBatch
 		var l1BlockNum uint64
 
-		if l2BlockNum <= etherMan.cfg.GenesisHotShotBlockNumber {
-			log.Infof(
-				"Hotshot block number %d not greater than genesis block number %d: skipping",
-				l2BlockNum,
-				etherMan.cfg.GenesisHotShotBlockNumber,
-			)
-			continue
-		}
-
-		err = etherMan.fetchL2Block(ctx, l2BlockNum, &batch, &l1BlockNum)
+		err = etherMan.fetchL2Block(ctx, hotShotBlockNum, &batch, &l1BlockNum)
 		if err != nil {
 			return nil, nil, err
 		}
