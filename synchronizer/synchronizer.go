@@ -276,8 +276,7 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 func (s *ClientSynchronizer) syncPreconfirmations() error {
 	for {
 		// Figure out where to start from: what is the first L2 block we haven't synchronized yet?
-		// This is the same as the last synchronized batch number, since L2 block numbers and batch
-		// numbers are offset by 1.
+		// This is the first batch after the last synchronized batch number.
 		latestSyncedBatch, err := s.state.GetLastBatchNumber(s.ctx, nil)
 		if err != nil {
 			log.Warn("error getting latest batch synced. Error: ", err)
@@ -285,7 +284,7 @@ func (s *ClientSynchronizer) syncPreconfirmations() error {
 		}
 
 		// Fetch new preconfirmed blocks from the sequencer.
-		blocks, order, err := s.etherMan.GetPreconfirmations(s.ctx, latestSyncedBatch)
+		blocks, order, err := s.etherMan.GetPreconfirmations(s.ctx, latestSyncedBatch+1)
 		if err != nil {
 			log.Warn("error getting preconfirmations. Error: ", err)
 			return err

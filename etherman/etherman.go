@@ -507,7 +507,7 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Block uin
 	var blocks []Block
 	order := make(map[common.Hash][]Order)
 
-	fromHotShotBlock := fromL2Block + etherMan.cfg.GenesisHotShotBlockNumber + 1
+	fromHotShotBlock := fromL2Block + etherMan.cfg.GenesisHotShotBlockNumber
 	log.Infof("Getting HotShot blocks in range %d - %d", fromHotShotBlock, hotShotBlockHeight)
 	for hotShotBlockNum := fromHotShotBlock; hotShotBlockNum < hotShotBlockHeight; hotShotBlockNum++ {
 		var batch SequencedBatch
