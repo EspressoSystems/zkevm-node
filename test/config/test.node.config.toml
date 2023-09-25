@@ -35,6 +35,7 @@ HotShotAddr = "0x0000000000000000000000000000000000000000"
 HotShotQueryServiceURL = "NOT_SET"
 L1ChainID = 1337
 MultiGasProvider = false
+GenesisHotShotBlockNumber = 1
 	[Etherscan]
 		ApiKey = ""
 

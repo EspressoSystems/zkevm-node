@@ -21,5 +21,6 @@ type Config struct {
 	MultiGasProvider bool `mapstructure:"MultiGasProvider"`
 	Etherscan        etherscan.Config
 
-	HotShotQueryServiceURL string `mapstructure:"HotShotQueryServiceURL"`
+	HotShotQueryServiceURL    string `mapstructure:"HotShotQueryServiceURL"`
+	GenesisHotShotBlockNumber uint64 `mapstructure:"GenesisHotShotBlockNumber"`
 }
