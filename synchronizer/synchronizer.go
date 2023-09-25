@@ -397,8 +397,6 @@ func (s *ClientSynchronizer) getBroadcastURI() (string, error) {
 
 func (s *ClientSynchronizer) processBlockRange(blocks []etherman.Block, order map[common.Hash][]etherman.Order) error {
 	// New info has to be included into the db using the state
-	log.Infof("blocks %+v", blocks)
-	log.Infof("order %+v", order)
 	for i := range blocks {
 		// Begin db transaction
 		dbTx, err := s.state.BeginStateTransaction(s.ctx)
@@ -606,7 +604,6 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		return nil
 	}
 	for _, sbatch := range sequencedBatches {
-		log.Infof("Processing sequenced batch: %+v", sbatch)
 		virtualBatch := state.VirtualBatch{
 			BatchNumber:   sbatch.BatchNumber,
 			TxHash:        sbatch.TxHash,
