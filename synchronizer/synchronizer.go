@@ -211,8 +211,8 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 
 	for {
 		toBlock := fromBlock + s.cfg.SyncChunkSize
-		log.Infof("Syncing block %d of %d", fromBlock, lastKnownBlock.Uint64())
-		log.Infof("Getting rollup info from block %d to block %d", fromBlock, toBlock)
+		log.Infof("Syncing L1 block %d of %d", fromBlock, lastKnownBlock.Uint64())
+		log.Infof("Getting rollup info from L1 block %d to block %d", fromBlock, toBlock)
 		// This function returns the rollup information contained in the ethereum blocks and an extra param called order.
 		// Order param is a map that contains the event order to allow the synchronizer store the info in the same order that is readed.
 		// Name can be defferent in the order struct. For instance: Batches or Name:NewSequencers. This name is an identifier to check
@@ -397,6 +397,8 @@ func (s *ClientSynchronizer) getBroadcastURI() (string, error) {
 
 func (s *ClientSynchronizer) processBlockRange(blocks []etherman.Block, order map[common.Hash][]etherman.Order) error {
 	// New info has to be included into the db using the state
+	log.Infof("blocks %+v", blocks)
+	log.Infof("order %+v", order)
 	for i := range blocks {
 		// Begin db transaction
 		dbTx, err := s.state.BeginStateTransaction(s.ctx)
@@ -604,6 +606,7 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		return nil
 	}
 	for _, sbatch := range sequencedBatches {
+		log.Infof("Processing sequenced batch: %+v", sbatch)
 		virtualBatch := state.VirtualBatch{
 			BatchNumber:   sbatch.BatchNumber,
 			TxHash:        sbatch.TxHash,

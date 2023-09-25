@@ -156,6 +156,9 @@ func NewClient(cfg Config) (*Client, error) {
 		gProviders = append(gProviders, ethgasstation.NewEthGasStationService())
 	}
 
+	log.Infof("Hotshot address %s", cfg.HotShotAddr.String())
+	log.Infof("Genesis hotshot block number %d", cfg.GenesisHotShotBlockNumber)
+
 	return &Client{
 		EthClient:             ethClient,
 		PoE:                   poe,
@@ -504,7 +507,7 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Block uin
 	var blocks []Block
 	order := make(map[common.Hash][]Order)
 
-	log.Info("Getting L2 blocks in range ", fromL2Block, "-", l2BlockHeight)
+	log.Infof("Getting L2 blocks in range ", fromL2Block, "-", l2BlockHeight)
 	for l2BlockNum := fromL2Block; l2BlockNum < l2BlockHeight; l2BlockNum++ {
 		var batch SequencedBatch
 		var l1BlockNum uint64
@@ -523,11 +526,12 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Block uin
 }
 
 func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
-	log.Debug("NewBlocks event detected")
 	newBlocks, err := etherMan.HotShot.ParseNewBlocks(vLog)
 	if err != nil {
 		return err
 	}
+	log.Debug("NewBlocks event detected %+v", newBlocks)
+
 	// Read the tx for this event.
 	tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
 	if err != nil {
@@ -595,23 +599,34 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 
 	// Get number of batches by parsing transaction
 	numNewBatches := newBlocks.NumBlocks.Uint64()
-	firstNewBatchNum := newBlocks.FirstBlockNumber.Uint64()
+	firstHotShotBlockNum := newBlocks.FirstBlockNumber.Uint64()
 
-	sequencedBatches := make([]SequencedBatch, numNewBatches)
+	var sequencedBatches []SequencedBatch
 	for i := uint64(0); i < numNewBatches; i++ {
-		curBatchNum := firstNewBatchNum + i
-		err := etherMan.fetchL2Block(ctx, curBatchNum, &sequencedBatches[i], nil)
+		curHotShotBlockNum := firstHotShotBlockNum + i
+
+		if curHotShotBlockNum <= etherMan.cfg.GenesisHotShotBlockNumber {
+			log.Infof(
+				"Hotshot block number %d not greater than genesis block number %d: skipping",
+				curHotShotBlockNum,
+				etherMan.cfg.GenesisHotShotBlockNumber,
+			)
+			continue
+		}
+		newBatch := SequencedBatch{}
+		err := etherMan.fetchL2Block(ctx, curHotShotBlockNum, &newBatch, nil)
 		if err != nil {
 			return nil, err
 		}
+		sequencedBatches = append(sequencedBatches, newBatch)
 	}
 
 	return sequencedBatches, nil
 }
 
-func (etherMan *Client) fetchL2Block(ctx context.Context, l2BlockNum uint64, batch *SequencedBatch, l1BlockNum *uint64) error {
+func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64, batch *SequencedBatch, l1BlockNum *uint64) error {
 	// Get transactions and metadata from HotShot query service
-	l2BlockNumStr := strconv.FormatUint(l2BlockNum, 10)
+	hotShotBlockNumStr := strconv.FormatUint(hotShotBlockNum, 10)
 
 	// Retry until we get a response from the query service
 	//
@@ -619,7 +634,7 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, l2BlockNum uint64, bat
 	// an error immediately all the batches need to be re-processed and the
 	// error will likely occur again. If instead we retry a few times here we
 	// can successfully fetch all the L2 blocks.
-	url := etherMan.cfg.HotShotQueryServiceURL + "/availability/block/" + l2BlockNumStr
+	url := etherMan.cfg.HotShotQueryServiceURL + "/availability/block/" + hotShotBlockNumStr
 	maxRetries := 10
 	var response *http.Response
 	var err error
@@ -639,9 +654,9 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, l2BlockNum uint64, bat
 		}
 
 		if err != nil {
-			log.Warnf("Error fetching batch %d from query service, try %d: %v", l2BlockNum, i+1, err)
+			log.Warnf("Error fetching l2 block %d from query service, try %d: %v", hotShotBlockNum, i+1, err)
 		} else {
-			log.Warnf("Error fetching batch %d from query service, try %d: status code %d", l2BlockNum, i+1, response.StatusCode)
+			log.Warnf("Error fetching l2 block %d from query service, try %d: status code %d", hotShotBlockNum, i+1, response.StatusCode)
 		}
 
 		if i < maxRetries-1 {
@@ -651,7 +666,7 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, l2BlockNum uint64, bat
 
 	// Handle the case if retries exhausted and still not successful
 	if response == nil || response.StatusCode != 200 {
-		return fmt.Errorf("Failed to fetch batch %d from query service after %d attempts", l2BlockNum, maxRetries)
+		return fmt.Errorf("Failed to fetch l2 block %d from query service after %d attempts", hotShotBlockNum, maxRetries)
 	}
 
 	var l2Block SequencerBlock
@@ -661,7 +676,13 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, l2BlockNum uint64, bat
 		panic(err)
 	}
 
-	log.Info("Fetched batch ", l2BlockNum, ": L1 block %v, timestamp %v, transactions ", l2Block.L1Block, l2Block.Timestamp, l2Block.Transactions)
+	log.Infof(
+		"Fetched L1 block %d, hotshot block: %d, timestamp %v, transactions %v",
+		l2Block.L1Block,
+		l2Block.Height,
+		l2Block.Timestamp,
+		l2Block.Transactions,
+	)
 	txns, err := hex.DecodeHex(l2Block.Transactions)
 	if err != nil {
 		// It's unlikely we can recover from this error by retrying.
@@ -685,7 +706,7 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, l2BlockNum uint64, bat
 		// should not contain any transactions for this L2, since they were created before the L2
 		// was deployed. In this case it doesn't matter what global exit root we use.
 		if len(txns) != 0 {
-			return fmt.Errorf("block %v (L1 block %v) contains L2 transactions from before GlobalExitRootManager was deployed", l2BlockNum, l1Block.Number())
+			return fmt.Errorf("block %v (L1 block %v) contains L2 transactions from before GlobalExitRootManager was deployed", hotShotBlockNum, l1Block.Number())
 		}
 	} else {
 		ger, err = etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1Block.Number()})
@@ -700,8 +721,11 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, l2BlockNum uint64, bat
 		Timestamp:      l2Block.Timestamp,
 	}
 
+	batchNum := hotShotBlockNum - etherMan.cfg.GenesisHotShotBlockNumber
+	log.Infof("Creating batch number %d", batchNum)
+
 	*batch = SequencedBatch{
-		BatchNumber:           l2BlockNum + 1,
+		BatchNumber:           batchNum,
 		PolygonZkEVMBatchData: newBatchData, // BatchData info
 
 		// Some metadata (in particular: information about the L1 transaction which sequenced this
