@@ -498,7 +498,7 @@ func (etherMan *Client) getMaxPreconfirmation() (uint64, error) {
 	return blockHeight, nil
 }
 
-func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Block uint64) ([]Block, map[common.Hash][]Order, error) {
+func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Batch uint64) ([]Block, map[common.Hash][]Order, error) {
 	hotShotBlockHeight, err := etherMan.getMaxPreconfirmation()
 	if err != nil {
 		return nil, nil, err
@@ -507,7 +507,7 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Block uin
 	var blocks []Block
 	order := make(map[common.Hash][]Order)
 
-	fromHotShotBlock := fromL2Block + etherMan.cfg.GenesisHotShotBlockNumber
+	fromHotShotBlock := fromL2Batch + etherMan.cfg.GenesisHotShotBlockNumber
 	log.Infof("Getting HotShot blocks in range %d - %d", fromHotShotBlock, hotShotBlockHeight)
 	for hotShotBlockNum := fromHotShotBlock; hotShotBlockNum < hotShotBlockHeight; hotShotBlockNum++ {
 		var batch SequencedBatch
