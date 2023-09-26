@@ -532,7 +532,7 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, bloc
 	if err != nil {
 		return err
 	}
-	log.Debug("NewBlocks event detected %+v", newBlocks)
+	log.Debugf("NewBlocks event detected %+v", newBlocks)
 
 	// Read the tx for this event.
 	tx, isPending, err := etherMan.EthClient.TransactionByHash(ctx, vLog.TxHash)
