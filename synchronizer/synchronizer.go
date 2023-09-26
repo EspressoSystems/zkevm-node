@@ -99,7 +99,9 @@ func (s *ClientSynchronizer) Sync() error {
 				BlockNumber: header.Number.Uint64(),
 				BlockHash:   header.Hash(),
 				ParentHash:  header.ParentHash,
-				ReceivedAt:  time.Unix(int64(header.Time), 0),
+				// TODO: Setting this "zero" timestamp is a workaround
+				// See: https://github.com/EspressoSystems/espresso-sequencer/issues/631
+				ReceivedAt: time.Time{},
 			}
 			newRoot, err := s.state.SetGenesis(s.ctx, *lastEthBlockSynced, s.genesis, dbTx)
 			if err != nil {
