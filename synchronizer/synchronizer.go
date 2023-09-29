@@ -606,7 +606,7 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 	}
 
 	prevTimestamp := s.state.GetLastBatchTime(s.ctx, dbTx)
-	for i, sbatch := range sequencedBatches {
+	for _, sbatch := range sequencedBatches {
 		virtualBatch := state.VirtualBatch{
 			BatchNumber:   sbatch.BatchNumber,
 			TxHash:        sbatch.TxHash,
