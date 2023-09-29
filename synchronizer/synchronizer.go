@@ -604,6 +604,12 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		log.Warn("Empty sequencedBatches array detected, ignoring...")
 		return nil
 	}
+
+	prevTimestamp, err := s.state.GetLastBatchTime(s.ctx, dbTx)
+	if err != nil {
+		log.Warn("Error fetching previous timestamp")
+		return err
+	}
 	for _, sbatch := range sequencedBatches {
 		virtualBatch := state.VirtualBatch{
 			BatchNumber:   sbatch.BatchNumber,
@@ -619,6 +625,16 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 			Coinbase:       sbatch.Coinbase,
 			BatchL2Data:    sbatch.Transactions,
 		}
+
+		// This should not be necessary, since HotShot should enforce non-decreasing timestamps.
+		// However, since HotShot does not currently support the ValidatedState API, timestamps
+		// proposed by leaders are not checked by replicas, and may occasionally decrease. In this
+		// case, just use the previous timestamp, to avoid breaking the rest of the execution
+		// pipeline.
+		if batch.Timestamp.Before(prevTimestamp) {
+			batch.Timestamp = prevTimestamp
+		}
+		prevTimestamp = batch.Timestamp
 
 		// Forced batches no longer supported, don't need to be handled
 
@@ -703,7 +719,7 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		FromBatchNumber: sequencedBatches[0].BatchNumber,
 		ToBatchNumber:   sequencedBatches[len(sequencedBatches)-1].BatchNumber,
 	}
-	err := s.state.AddSequence(s.ctx, seq, dbTx)
+	err = s.state.AddSequence(s.ctx, seq, dbTx)
 	if err != nil {
 		log.Errorf("error adding sequence. Sequence: %+v", seq)
 		rollbackErr := dbTx.Rollback(s.ctx)
