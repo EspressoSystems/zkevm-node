@@ -605,7 +605,11 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		return nil
 	}
 
-	prevTimestamp := s.state.GetLastBatchTime(s.ctx, dbTx)
+	prevTimestamp, err := s.state.GetLastBatchTime(s.ctx, dbTx)
+	if err != nil {
+		log.Warn("Error fetching previous timestamp")
+		return err
+	}
 	for _, sbatch := range sequencedBatches {
 		virtualBatch := state.VirtualBatch{
 			BatchNumber:   sbatch.BatchNumber,
@@ -715,7 +719,7 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		FromBatchNumber: sequencedBatches[0].BatchNumber,
 		ToBatchNumber:   sequencedBatches[len(sequencedBatches)-1].BatchNumber,
 	}
-	err := s.state.AddSequence(s.ctx, seq, dbTx)
+	err = s.state.AddSequence(s.ctx, seq, dbTx)
 	if err != nil {
 		log.Errorf("error adding sequence. Sequence: %+v", seq)
 		rollbackErr := dbTx.Rollback(s.ctx)
