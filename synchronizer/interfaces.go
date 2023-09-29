@@ -3,6 +3,7 @@ package synchronizer
 import (
 	"context"
 	"math/big"
+	"time"
 
 	"github.com/0xPolygonHermez/zkevm-node/etherman"
 	"github.com/0xPolygonHermez/zkevm-node/state"

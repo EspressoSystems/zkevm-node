@@ -3,6 +3,8 @@
 package synchronizer
 
 import (
+	"time"
+
 	context "context"
 
 	common "github.com/ethereum/go-ethereum/common"
@@ -226,7 +228,7 @@ func (_m *stateMock) GetLastBatchNumber(ctx context.Context, dbTx pgx.Tx) (uint6
 func (_m *stateMock) GetLastBatchTime(ctx context.Context, dbTx pgx.Tx) (time.Time, error) {
 	ret := _m.Called(ctx, dbTx)
 
-	var r0 uint64
+	var r0 time.Time
 	if rf, ok := ret.Get(0).(func(context.Context, pgx.Tx) time.Time); ok {
 		r0 = rf(ctx, dbTx)
 	} else {

@@ -631,7 +631,7 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		// proposed by leaders are not checked by replicas, and may occasionally decrease. In this
 		// case, just use the previous timestamp, to avoid breaking the rest of the execution
 		// pipeline.
-		if batch.Timestamp < prevTimestamp {
+		if batch.Timestamp.Before(prevTimestamp) {
 			batch.Timestamp = prevTimestamp
 		}
 		prevTimestamp = batch.Timestamp
