@@ -611,6 +611,23 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		return nil
 	}
 
+	if lastBatch, err := s.state.GetLastBatchNumber(s.ctx, dbTx); err != nil {
+		log.Errorf("Error fetching previous batch number: %w", err)
+		rollbackErr := dbTx.Rollback(s.ctx)
+		if rollbackErr != nil {
+			log.Fatalf("error rolling back state. rollbackErr: %s, error : %w", rollbackErr.Error(), err)
+		}
+		return err
+	} else if sequencedBatches[0].BatchNumber != lastBatch + 1 {
+		err = fmt.Errorf("New batch %d is not successor of last synced batch %d, there may have been a reorg", sequencedBatches[0].BatchNumber, lastBatch)
+		log.Warnf("Possible reorg detected: %w", err)
+		rollbackErr := dbTx.Rollback(s.ctx)
+		if rollbackErr != nil {
+			log.Fatalf("error rolling back state. rollbackErr: %s, error : %w", rollbackErr.Error(), err)
+		}
+		return err
+	}
+
 	for _, sbatch := range sequencedBatches {
 		// Ensure the L1 origin for this batch is in the database. Since the L1 origin assigned by
 		// HotShot is not necessarily the same as an L1 block which we added to the database as a
