@@ -247,7 +247,7 @@ func (etherMan *Client) GetForks(ctx context.Context) ([]state.ForkIDInterval, e
 
 // GetRollupInfoByBlockRange function retrieves the Rollup information that are included in all this ethereum blocks
 // from block x to block y.
-func (etherMan *Client) GetRollupInfoByBlockRange(ctx context.Context, fromBlock uint64, toBlock *uint64, usePreconfirmations bool) ([]Block, map[common.Hash][]Order, error) {
+func (etherMan *Client) GetRollupInfoByBlockRange(ctx context.Context, fromBlock uint64, toBlock *uint64, prevBatch state.L2BatchInfo, usePreconfirmations bool) ([]Block, map[common.Hash][]Order, error) {
 	// Filter query
 	query := ethereum.FilterQuery{
 		FromBlock: new(big.Int).SetUint64(fromBlock),
@@ -256,7 +256,7 @@ func (etherMan *Client) GetRollupInfoByBlockRange(ctx context.Context, fromBlock
 	if toBlock != nil {
 		query.ToBlock = new(big.Int).SetUint64(*toBlock)
 	}
-	blocks, blocksOrder, err := etherMan.readEvents(ctx, query, usePreconfirmations)
+	blocks, blocksOrder, err := etherMan.readEvents(ctx, prevBatch, query, usePreconfirmations)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -269,7 +269,7 @@ type Order struct {
 	Pos  int
 }
 
-func (etherMan *Client) readEvents(ctx context.Context, query ethereum.FilterQuery, usePreconfirmations bool) ([]Block, map[common.Hash][]Order, error) {
+func (etherMan *Client) readEvents(ctx context.Context, prevBatch state.L2BatchInfo, query ethereum.FilterQuery, usePreconfirmations bool) ([]Block, map[common.Hash][]Order, error) {
 	logs, err := etherMan.EthClient.FilterLogs(ctx, query)
 	if err != nil {
 		return nil, nil, err
@@ -277,7 +277,7 @@ func (etherMan *Client) readEvents(ctx context.Context, query ethereum.FilterQue
 	var blocks []Block
 	blocksOrder := make(map[common.Hash][]Order)
 	for _, vLog := range logs {
-		err := etherMan.processEvent(ctx, vLog, &blocks, &blocksOrder, usePreconfirmations)
+		err := etherMan.processEvent(ctx, &prevBatch, vLog, &blocks, &blocksOrder, usePreconfirmations)
 		if err != nil {
 			log.Warnf("error processing event. Retrying... Error: %s. vLog: %+v", err.Error(), vLog)
 			return nil, nil, err
@@ -286,7 +286,7 @@ func (etherMan *Client) readEvents(ctx context.Context, query ethereum.FilterQue
 	return blocks, blocksOrder, nil
 }
 
-func (etherMan *Client) processEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order, usePreconfirmations bool) error {
+func (etherMan *Client) processEvent(ctx context.Context, prevBatch *state.L2BatchInfo, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order, usePreconfirmations bool) error {
 	switch vLog.Topics[0] {
 	case newBlocksSignatureHash:
 		if usePreconfirmations {
@@ -295,7 +295,7 @@ func (etherMan *Client) processEvent(ctx context.Context, vLog types.Log, blocks
 			// L1 (which happens later).
 			return nil
 		} else {
-			return etherMan.newBlocksEvent(ctx, vLog, blocks, blocksOrder)
+			return etherMan.newBlocksEvent(ctx, prevBatch, vLog, blocks, blocksOrder)
 		}
 	case updateGlobalExitRootSignatureHash:
 		return etherMan.updateGlobalExitRootEvent(ctx, vLog, blocks, blocksOrder)
@@ -498,7 +498,7 @@ func (etherMan *Client) getMaxPreconfirmation() (uint64, error) {
 	return blockHeight, nil
 }
 
-func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Batch uint64) ([]Block, map[common.Hash][]Order, error) {
+func (etherMan *Client) GetPreconfirmations(ctx context.Context, prevBatch state.L2BatchInfo) ([]Block, map[common.Hash][]Order, error) {
 	hotShotBlockHeight, err := etherMan.getMaxPreconfirmation()
 	if err != nil {
 		return nil, nil, err
@@ -507,13 +507,15 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Batch uin
 	var blocks []Block
 	order := make(map[common.Hash][]Order)
 
-	fromHotShotBlock := fromL2Batch + etherMan.cfg.GenesisHotShotBlockNumber
+	// Start fetching from the next L2 batch (prevBatch.Number + 1), adjusting batch numbers to
+	// HotShot block numbers by offsetting by the HotShot block height at L2 genesis time.
+	fromHotShotBlock := prevBatch.Number + 1 + etherMan.cfg.GenesisHotShotBlockNumber
 	log.Infof("Getting HotShot blocks in range %d - %d", fromHotShotBlock, hotShotBlockHeight)
 	for hotShotBlockNum := fromHotShotBlock; hotShotBlockNum < hotShotBlockHeight; hotShotBlockNum++ {
 		var batch SequencedBatch
 		var l1BlockNum uint64
 
-		err = etherMan.fetchL2Block(ctx, hotShotBlockNum, &batch, &l1BlockNum)
+		err = etherMan.fetchL2Block(ctx, hotShotBlockNum, &prevBatch, &batch, &l1BlockNum)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -527,7 +529,7 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, fromL2Batch uin
 	return blocks, order, nil
 }
 
-func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
+func (etherMan *Client) newBlocksEvent(ctx context.Context, prevBatch *state.L2BatchInfo, vLog types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	newBlocks, err := etherMan.HotShot.ParseNewBlocks(vLog)
 	if err != nil {
 		return err
@@ -545,7 +547,7 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, vLog types.Log, bloc
 	if err != nil {
 		return err
 	}
-	sequences, err := etherMan.decodeSequencesHotShot(ctx, tx.Data(), *newBlocks, msg.From, msg.Nonce)
+	sequences, err := etherMan.decodeSequencesHotShot(ctx, prevBatch, tx.Data(), *newBlocks, msg.From, msg.Nonce)
 	if err != nil {
 		return fmt.Errorf("error decoding the sequences: %v", err)
 	}
@@ -597,7 +599,7 @@ func (etherMan *Client) l1BlockFromL2Block(ctx context.Context, l2Block Sequence
 	return etherMan.EthBlockByNumber(ctx, l2Block.L1Block)
 }
 
-func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byte, newBlocks ihotshot.IhotshotNewBlocks, sequencer common.Address, nonce uint64) ([]SequencedBatch, error) {
+func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, prevBatch *state.L2BatchInfo, txData []byte, newBlocks ihotshot.IhotshotNewBlocks, sequencer common.Address, nonce uint64) ([]SequencedBatch, error) {
 
 	// Get number of batches by parsing transaction
 	numNewBatches := newBlocks.NumBlocks.Uint64()
@@ -616,7 +618,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 			continue
 		}
 		newBatch := SequencedBatch{}
-		err := etherMan.fetchL2Block(ctx, curHotShotBlockNum, &newBatch, nil)
+		err := etherMan.fetchL2Block(ctx, curHotShotBlockNum, prevBatch, &newBatch, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -626,7 +628,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, txData []byt
 	return sequencedBatches, nil
 }
 
-func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64, batch *SequencedBatch, l1BlockNum *uint64) error {
+func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64, prevBatch *state.L2BatchInfo, batch *SequencedBatch, l1BlockNum *uint64) error {
 	// Get transactions and metadata from HotShot query service
 	hotShotBlockNumStr := strconv.FormatUint(hotShotBlockNum, 10)
 
@@ -677,6 +679,20 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 		// It's unlikely we can recover from this error by retrying.
 		panic(err)
 	}
+
+	// This should not be necessary, since HotShot should enforce non-decreasing timestamps and L1
+	// block numbers. However, since HotShot does not currently support the ValidatedState API,
+	// timestamps and L1 block numbers proposed by leaders are not checked by replicas, and may
+	// occasionally decrease. In this case, just use the previous value, to avoid breaking the rest
+	// of the execution pipeline.
+	if l2Block.L1Block < prevBatch.L1Block {
+		l2Block.L1Block = prevBatch.L1Block
+	}
+	if l2Block.Timestamp < prevBatch.Timestamp {
+		l2Block.Timestamp = prevBatch.Timestamp
+	}
+	prevBatch.L1Block = l2Block.L1Block
+	prevBatch.Timestamp = l2Block.Timestamp
 
 	log.Infof(
 		"Fetched L1 block %d, hotshot block: %d, timestamp %v, transactions %v",

@@ -215,12 +215,19 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 		toBlock := fromBlock + s.cfg.SyncChunkSize
 		log.Infof("Syncing L1 block %d of %d", fromBlock, lastKnownBlock.Uint64())
 		log.Infof("Getting rollup info from L1 block %d to block %d", fromBlock, toBlock)
+
+		prevBatch, err := s.state.GetLastBatchInfo(s.ctx, nil)
+		if err != nil {
+			log.Warn("error getting latest batch synced. Error: ", err)
+			return lastEthBlockSynced, err
+		}
+
 		// This function returns the rollup information contained in the ethereum blocks and an extra param called order.
 		// Order param is a map that contains the event order to allow the synchronizer store the info in the same order that is readed.
 		// Name can be defferent in the order struct. For instance: Batches or Name:NewSequencers. This name is an identifier to check
 		// if the next info that must be stored in the db is a new sequencer or a batch. The value pos (position) tells what is the
 		// array index where this value is.
-		blocks, order, err := s.etherMan.GetRollupInfoByBlockRange(s.ctx, fromBlock, &toBlock, s.usePreconfirmations())
+		blocks, order, err := s.etherMan.GetRollupInfoByBlockRange(s.ctx, fromBlock, &toBlock, prevBatch, s.usePreconfirmations())
 		if err != nil {
 			return lastEthBlockSynced, err
 		}
@@ -277,16 +284,15 @@ func (s *ClientSynchronizer) syncBlocks(lastEthBlockSynced *state.Block) (*state
 
 func (s *ClientSynchronizer) syncPreconfirmations() error {
 	for {
-		// Figure out where to start from: what is the first L2 block we haven't synchronized yet?
-		// This is the first batch after the last synchronized batch number.
-		latestSyncedBatch, err := s.state.GetLastBatchNumber(s.ctx, nil)
+		// Figure out where to start from.
+		latestSyncedBatch, err := s.state.GetLastBatchInfo(s.ctx, nil)
 		if err != nil {
 			log.Warn("error getting latest batch synced. Error: ", err)
 			return err
 		}
 
 		// Fetch new preconfirmed blocks from the sequencer.
-		blocks, order, err := s.etherMan.GetPreconfirmations(s.ctx, latestSyncedBatch+1)
+		blocks, order, err := s.etherMan.GetPreconfirmations(s.ctx, latestSyncedBatch)
 		if err != nil {
 			log.Warn("error getting preconfirmations. Error: ", err)
 			return err
@@ -605,11 +611,6 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		return nil
 	}
 
-	prevTimestamp, err := s.state.GetLastBatchTime(s.ctx, dbTx)
-	if err != nil {
-		log.Warn("Error fetching previous timestamp")
-		return err
-	}
 	for _, sbatch := range sequencedBatches {
 		virtualBatch := state.VirtualBatch{
 			BatchNumber:   sbatch.BatchNumber,
@@ -625,16 +626,6 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 			Coinbase:       sbatch.Coinbase,
 			BatchL2Data:    sbatch.Transactions,
 		}
-
-		// This should not be necessary, since HotShot should enforce non-decreasing timestamps.
-		// However, since HotShot does not currently support the ValidatedState API, timestamps
-		// proposed by leaders are not checked by replicas, and may occasionally decrease. In this
-		// case, just use the previous timestamp, to avoid breaking the rest of the execution
-		// pipeline.
-		if batch.Timestamp.Before(prevTimestamp) {
-			batch.Timestamp = prevTimestamp
-		}
-		prevTimestamp = batch.Timestamp
 
 		// Forced batches no longer supported, don't need to be handled
 
@@ -719,7 +710,7 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		FromBatchNumber: sequencedBatches[0].BatchNumber,
 		ToBatchNumber:   sequencedBatches[len(sequencedBatches)-1].BatchNumber,
 	}
-	err = s.state.AddSequence(s.ctx, seq, dbTx)
+	err := s.state.AddSequence(s.ctx, seq, dbTx)
 	if err != nil {
 		log.Errorf("error adding sequence. Sequence: %+v", seq)
 		rollbackErr := dbTx.Rollback(s.ctx)

@@ -27,6 +27,7 @@ const (
 	addBlockSQL                              = "INSERT INTO state.block (block_num, block_hash, parent_hash, received_at) SELECT $1, $2, $3, $4 WHERE NOT EXISTS (SELECT block_num FROM state.block WHERE block_num = $1)"
 	getLastBlockSQL                          = "SELECT block_num, block_hash, parent_hash, received_at FROM state.block ORDER BY block_num DESC LIMIT 1"
 	getPreviousBlockSQL                      = "SELECT block_num, block_hash, parent_hash, received_at FROM state.block ORDER BY block_num DESC LIMIT 1 OFFSET $1"
+	getLastBatchInfoSQL                      = "SELECT v.batch_num, v.block_num, b.timestamp FROM state.batch AS b JOIN state.virtual_batch AS v ON b.batch_num = v.batch_num ORDER BY b.batch_num DESC LIMIT 1"
 	getLastBatchNumberSQL                    = "SELECT batch_num FROM state.batch ORDER BY batch_num DESC LIMIT 1"
 	getLastNBatchesSQL                       = "SELECT batch_num, global_exit_root, local_exit_root, acc_input_hash, state_root, timestamp, coinbase, raw_txs_data, forced_batch_num from state.batch ORDER BY batch_num DESC LIMIT $1"
 	getLastBatchTimeSQL                      = "SELECT timestamp FROM state.batch ORDER BY batch_num DESC LIMIT 1"
@@ -490,6 +491,18 @@ func (p *PostgresStorage) GetLastNBatchesByL2BlockNumber(ctx context.Context, l2
 	}
 
 	return batches, *l2BlockStateRoot, nil
+}
+
+// GetLastBatchInfo get last trusted batch info
+func (p *PostgresStorage) GetLastBatchInfo(ctx context.Context, dbTx pgx.Tx) (L2BatchInfo, error) {
+	var info L2BatchInfo
+	q := p.getExecQuerier(dbTx)
+
+	err := q.QueryRow(ctx, getLastBatchInfoSQL).Scan(&info.Number, &info.L1Block, &info.Timestamp)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return info, ErrStateNotSynchronized
+	}
+	return info, err
 }
 
 // GetLastBatchNumber get last trusted batch number

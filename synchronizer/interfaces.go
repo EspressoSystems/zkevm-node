@@ -16,12 +16,12 @@ import (
 // ethermanInterface contains the methods required to interact with ethereum.
 type ethermanInterface interface {
 	HeaderByNumber(ctx context.Context, number *big.Int) (*types.Header, error)
-	GetRollupInfoByBlockRange(ctx context.Context, fromBlock uint64, toBlock *uint64, usePreconfirmations bool) ([]etherman.Block, map[common.Hash][]etherman.Order, error)
+	GetRollupInfoByBlockRange(ctx context.Context, fromBlock uint64, toBlock *uint64, prevBatch state.L2BatchInfo, usePreconfirmations bool) ([]etherman.Block, map[common.Hash][]etherman.Order, error)
 	EthBlockByNumber(ctx context.Context, blockNumber uint64) (*types.Block, error)
 	GetLatestBatchNumber() (uint64, error)
 	GetTrustedSequencerURL() (string, error)
 	VerifyGenBlockNumber(ctx context.Context, genBlockNumber uint64) (bool, error)
-	GetPreconfirmations(ctx context.Context, fromL2Block uint64) ([]etherman.Block, map[common.Hash][]etherman.Order, error)
+	GetPreconfirmations(ctx context.Context, prevBatch state.L2BatchInfo) ([]etherman.Block, map[common.Hash][]etherman.Order, error)
 }
 
 // stateInterface gathers the methods required to interact with the state.
@@ -32,6 +32,7 @@ type stateInterface interface {
 	AddBlock(ctx context.Context, block *state.Block, dbTx pgx.Tx) error
 	Reset(ctx context.Context, blockNumber uint64, dbTx pgx.Tx) error
 	GetPreviousBlock(ctx context.Context, offset uint64, dbTx pgx.Tx) (*state.Block, error)
+	GetLastBatchInfo(ctx context.Context, dbTx pgx.Tx) (state.L2BatchInfo, error)
 	GetLastBatchNumber(ctx context.Context, dbTx pgx.Tx) (uint64, error)
 	GetLastBatchTime(ctx context.Context, dbTx pgx.Tx) (time.Time, error)
 	GetBatchByNumber(ctx context.Context, batchNumber uint64, dbTx pgx.Tx) (*state.Batch, error)
