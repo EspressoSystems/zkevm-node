@@ -581,24 +581,6 @@ func (etherMan *Client) appendSequencedBatches(ctx context.Context, sequences []
 	return nil
 }
 
-func (etherMan *Client) l1BlockFromL2Block(ctx context.Context, l2Block SequencerBlock) (*types.Block, error) {
-	// Each L2 block must be associated with a unique L1 block, so that we know which global exit
-	// root (maintained on L1) to use when executing bridge withdrawals on L2. In the original
-	// Polygon zkEVM, this association is determined whenever an L2 batch is sequenced on L1. This
-	// design makes it impossible to use the HotShot sequencer for fast preconfirmations, because
-	// even though a canonical ordering of L2 blocks is determined quickly, we cannot execute those
-	// blocks until they have been persisted on L1, which can be slow.
-	//
-	// To enable fast preconfirmations, we redefine the way in which L2 blocks get associated with
-	// L1 blocks. Each time an L2 block is _sequenced_, the HotShot consensus protocol assigns it an
-	// L1 block number, which is guaranteed to be a recent L1 block number by a quorum of the stake.
-	// This means each L2 block is *immediately* associated with an L1 block in a determinstic and
-	// unequivocal way. We use this association when executing the block and later when proving it,
-	// so there is no need to wait for the block to be sent to L1 in order to compute the resulting
-	// state.
-	return etherMan.EthBlockByNumber(ctx, l2Block.L1Block)
-}
-
 func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, prevBatch *state.L2BatchInfo, txData []byte, newBlocks ihotshot.IhotshotNewBlocks, sequencer common.Address, nonce uint64) ([]SequencedBatch, error) {
 
 	// Get number of batches by parsing transaction
@@ -686,13 +668,13 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 	// occasionally decrease. In this case, just use the previous value, to avoid breaking the rest
 	// of the execution pipeline.
 	if l2Block.L1Block < prevBatch.L1Block {
+		log.Warnf("HotShot block %d has decreasing L1Block: %d-%d", l2Block.Height, prevBatch.L1Block, l2Block.L1Block)
 		l2Block.L1Block = prevBatch.L1Block
 	}
 	if l2Block.Timestamp < prevBatch.Timestamp {
+		log.Warnf("HotShot block %d has decreasing timestamp: %d-%d", l2Block.Height, prevBatch.Timestamp, l2Block.Timestamp)
 		l2Block.Timestamp = prevBatch.Timestamp
 	}
-	prevBatch.L1Block = l2Block.L1Block
-	prevBatch.Timestamp = l2Block.Timestamp
 
 	log.Infof(
 		"Fetched L1 block %d, hotshot block: %d, timestamp %v, transactions %v",
@@ -707,14 +689,8 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 		panic(err)
 	}
 
-	// Fetch L1 state corresponding to this L2 block (e.g. global exit root)
-	l1Block, err := etherMan.l1BlockFromL2Block(ctx, l2Block)
-	if err != nil {
-		return err
-	}
-
 	var ger [32]byte
-	code, err := etherMan.EthClient.CodeAt(ctx, etherMan.cfg.GlobalExitRootManagerAddr, l1Block.Number())
+	code, err := etherMan.EthClient.CodeAt(ctx, etherMan.cfg.GlobalExitRootManagerAddr, big.NewInt(int64(l2Block.L1Block)))
 	if err != nil {
 		return err
 	}
@@ -724,10 +700,10 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 		// should not contain any transactions for this L2, since they were created before the L2
 		// was deployed. In this case it doesn't matter what global exit root we use.
 		if len(txns) != 0 {
-			return fmt.Errorf("block %v (L1 block %v) contains L2 transactions from before GlobalExitRootManager was deployed", hotShotBlockNum, l1Block.Number())
+			return fmt.Errorf("block %v (L1 block %v) contains L2 transactions from before GlobalExitRootManager was deployed", hotShotBlockNum, l2Block.L1Block)
 		}
 	} else {
-		ger, err = etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: l1Block.Number()})
+		ger, err = etherMan.GlobalExitRootManager.GetLastGlobalExitRoot(&bind.CallOpts{BlockNumber: big.NewInt(int64(l2Block.L1Block))})
 		if err != nil {
 			return err
 		}
@@ -757,7 +733,12 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 		Nonce:         0,
 	}
 	if l1BlockNum != nil {
-		*l1BlockNum = l1Block.Number().Uint64()
+		*l1BlockNum = l2Block.L1Block
+	}
+	*prevBatch = state.L2BatchInfo{
+		Number:    batchNum,
+		L1Block:   l2Block.L1Block,
+		Timestamp: l2Block.Timestamp,
 	}
 
 	return nil

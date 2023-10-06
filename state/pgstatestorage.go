@@ -496,12 +496,16 @@ func (p *PostgresStorage) GetLastNBatchesByL2BlockNumber(ctx context.Context, l2
 // GetLastBatchInfo get last trusted batch info
 func (p *PostgresStorage) GetLastBatchInfo(ctx context.Context, dbTx pgx.Tx) (L2BatchInfo, error) {
 	var info L2BatchInfo
+	var timestamp time.Time
+
 	q := p.getExecQuerier(dbTx)
 
-	err := q.QueryRow(ctx, getLastBatchInfoSQL).Scan(&info.Number, &info.L1Block, &info.Timestamp)
+	err := q.QueryRow(ctx, getLastBatchInfoSQL).Scan(&info.Number, &info.L1Block, &timestamp)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return info, ErrStateNotSynchronized
 	}
+	info.Timestamp = uint64(timestamp.Unix())
+
 	return info, err
 }
 
