@@ -63,6 +63,8 @@ var (
 		"please check the [Etherman] PrivateKeyPath and PrivateKeyPassword configuration")
 	// ErrPrivateKeyNotFound used when the provided sender does not have a private key registered to be used
 	ErrPrivateKeyNotFound = errors.New("can't find sender private key to sign tx")
+	// ErrSkipBatch indicates that we have seen an old batch and should skip re-processing it
+	ErrSkipBatch = errors.New("skip old batch")
 )
 
 // SequencedBatchesSigHash returns the hash for the `SequenceBatches` event.
@@ -514,7 +516,9 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, prevBatch state
 	for hotShotBlockNum := fromHotShotBlock; hotShotBlockNum < hotShotBlockHeight; hotShotBlockNum++ {
 		var batch SequencedBatch
 		err = etherMan.fetchL2Block(ctx, hotShotBlockNum, &prevBatch, &batch)
-		if err != nil {
+		if errors.Is(err, ErrSkipBatch) {
+			continue
+		} else if err != nil {
 			return nil, nil, err
 		}
 
@@ -601,7 +605,9 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, prevBatch *s
 		}
 		newBatch := SequencedBatch{}
 		err := etherMan.fetchL2Block(ctx, curHotShotBlockNum, prevBatch, &newBatch)
-		if err != nil {
+		if errors.Is(err, ErrSkipBatch) {
+			continue
+		} else if err != nil {
 			return nil, err
 		}
 		sequencedBatches = append(sequencedBatches, newBatch)
@@ -665,14 +671,33 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 	batchNum := hotShotBlockNum - etherMan.cfg.GenesisHotShotBlockNumber
 	log.Infof("Creating batch number %d", batchNum)
 
+	// Check that we got the expected batch.
+	if batchNum < prevBatch.Number + 1 {
+		// We got a batch which is older than expected. This means we have somehow already processed
+		// this batch. This should not be possible, since each batch is included exactly once in the
+		// batch stream, and the only case where we process the same section of the batch stream
+		// twice is when retrying after an error, in which case we should have reverted any changes
+		// we made to the state when processing the first time.
+		//
+		// If this happens, it is indicative of a programming error or a corrupt block stream, so we
+		// will complain loudly. However, there is no actual harm done: since we have ostensibly
+		// already processed this batch, we can just skip it and continue to make progress.
+		log.Errorf("received old batch %d, prev batch is %v", batchNum, prevBatch)
+		return ErrSkipBatch
+	} else if batchNum > prevBatch.Number + 1 {
+		// In this case we have somehow skipped a batch. This should also not be possible, because
+		// we always process batches sequentially. This is indicative of a corrupt DB. All we can do
+		// is return an error to trigger a retry in the caller.
+		return fmt.Errorf("received batch %d from the future, prev batch is %v", batchNum, prevBatch)
+	}
+
+	// Adjust L1 block and timestamp as needed.
+	//
 	// This should not be necessary, since HotShot should enforce non-decreasing timestamps and L1
 	// block numbers. However, since HotShot does not currently support the ValidatedState API,
 	// timestamps and L1 block numbers proposed by leaders are not checked by replicas, and may
 	// occasionally decrease. In this case, just use the previous value, to avoid breaking the rest
 	// of the execution pipeline.
-	if batchNum != prevBatch.Number + 1 {
-		log.Fatalf("prevBatch %d is not the parent of the new L2 block %d", prevBatch.Number, batchNum)
-	}
 	if l2Block.L1Block < prevBatch.L1Block {
 		log.Warnf("HotShot block %d has decreasing L1Block: %d-%d", l2Block.Height, prevBatch.L1Block, l2Block.L1Block)
 		l2Block.L1Block = prevBatch.L1Block
