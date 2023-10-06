@@ -152,3 +152,9 @@ type DebugInfo struct {
 	Timestamp time.Time
 	Payload   string
 }
+
+type L2BatchInfo struct {
+	Number    uint64
+	L1Block   uint64
+	Timestamp uint64
+}
