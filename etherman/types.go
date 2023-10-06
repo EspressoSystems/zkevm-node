@@ -38,6 +38,7 @@ type GlobalExitRoot struct {
 // SequencedBatch represents virtual batch
 type SequencedBatch struct {
 	BatchNumber   uint64
+	BlockNumber   uint64
 	SequencerAddr common.Address
 	TxHash        common.Hash
 	Nonce         uint64

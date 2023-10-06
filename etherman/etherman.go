@@ -513,14 +513,12 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, prevBatch state
 	log.Infof("Getting HotShot blocks in range %d - %d", fromHotShotBlock, hotShotBlockHeight)
 	for hotShotBlockNum := fromHotShotBlock; hotShotBlockNum < hotShotBlockHeight; hotShotBlockNum++ {
 		var batch SequencedBatch
-		var l1BlockNum uint64
-
-		err = etherMan.fetchL2Block(ctx, hotShotBlockNum, &prevBatch, &batch, &l1BlockNum)
+		err = etherMan.fetchL2Block(ctx, hotShotBlockNum, &prevBatch, &batch)
 		if err != nil {
 			return nil, nil, err
 		}
 
-		err = etherMan.appendSequencedBatches(ctx, []SequencedBatch{batch}, l1BlockNum, &blocks, &order)
+		err = etherMan.appendSequencedBatches(ctx, []SequencedBatch{batch}, batch.BlockNumber, &blocks, &order)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -560,6 +558,11 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, prevBatch *state.L2B
 
 func (etherMan *Client) appendSequencedBatches(ctx context.Context, sequences []SequencedBatch, blockNumber uint64, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	if len(*blocks) == 0 || (*blocks)[len(*blocks)-1].BlockNumber != blockNumber {
+		// Sanity check: if we got a new L1 block number, it should be increasing.
+		if len(*blocks) > 0 && blockNumber < (*blocks)[len(*blocks)-1].BlockNumber {
+			log.Fatalf("L1 block number decreased from %d to %d", (*blocks)[len(*blocks)-1].BlockNumber, blockNumber)
+		}
+
 		fullBlock, err := etherMan.EthBlockByNumber(ctx, blockNumber)
 		if err != nil {
 			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", blockNumber, err)
@@ -567,11 +570,8 @@ func (etherMan *Client) appendSequencedBatches(ctx context.Context, sequences []
 		block := prepareBlock(fullBlock)
 		block.SequencedBatches = append(block.SequencedBatches, sequences)
 		*blocks = append(*blocks, block)
-	} else if (*blocks)[len(*blocks)-1].BlockNumber == blockNumber {
-		(*blocks)[len(*blocks)-1].SequencedBatches = append((*blocks)[len(*blocks)-1].SequencedBatches, sequences)
 	} else {
-		log.Error("Error processing SequencedBatches event. BlockNumber: ", blockNumber)
-		return fmt.Errorf("error processing SequencedBatches event")
+		(*blocks)[len(*blocks)-1].SequencedBatches = append((*blocks)[len(*blocks)-1].SequencedBatches, sequences)
 	}
 	or := Order{
 		Name: SequenceBatchesOrder,
@@ -600,7 +600,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, prevBatch *s
 			continue
 		}
 		newBatch := SequencedBatch{}
-		err := etherMan.fetchL2Block(ctx, curHotShotBlockNum, prevBatch, &newBatch, nil)
+		err := etherMan.fetchL2Block(ctx, curHotShotBlockNum, prevBatch, &newBatch)
 		if err != nil {
 			return nil, err
 		}
@@ -610,7 +610,7 @@ func (etherMan *Client) decodeSequencesHotShot(ctx context.Context, prevBatch *s
 	return sequencedBatches, nil
 }
 
-func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64, prevBatch *state.L2BatchInfo, batch *SequencedBatch, l1BlockNum *uint64) error {
+func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64, prevBatch *state.L2BatchInfo, batch *SequencedBatch) error {
 	// Get transactions and metadata from HotShot query service
 	hotShotBlockNumStr := strconv.FormatUint(hotShotBlockNum, 10)
 
@@ -662,11 +662,17 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 		panic(err)
 	}
 
+	batchNum := hotShotBlockNum - etherMan.cfg.GenesisHotShotBlockNumber
+	log.Infof("Creating batch number %d", batchNum)
+
 	// This should not be necessary, since HotShot should enforce non-decreasing timestamps and L1
 	// block numbers. However, since HotShot does not currently support the ValidatedState API,
 	// timestamps and L1 block numbers proposed by leaders are not checked by replicas, and may
 	// occasionally decrease. In this case, just use the previous value, to avoid breaking the rest
 	// of the execution pipeline.
+	if batchNum != prevBatch.Number + 1 {
+		log.Fatalf("prevBatch %d is not the parent of the new L2 block %d", prevBatch.Number, batchNum)
+	}
 	if l2Block.L1Block < prevBatch.L1Block {
 		log.Warnf("HotShot block %d has decreasing L1Block: %d-%d", l2Block.Height, prevBatch.L1Block, l2Block.L1Block)
 		l2Block.L1Block = prevBatch.L1Block
@@ -674,6 +680,11 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 	if l2Block.Timestamp < prevBatch.Timestamp {
 		log.Warnf("HotShot block %d has decreasing timestamp: %d-%d", l2Block.Height, prevBatch.Timestamp, l2Block.Timestamp)
 		l2Block.Timestamp = prevBatch.Timestamp
+	}
+	*prevBatch = state.L2BatchInfo{
+		Number:    batchNum,
+		L1Block:   l2Block.L1Block,
+		Timestamp: l2Block.Timestamp,
 	}
 
 	log.Infof(
@@ -715,11 +726,9 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 		Timestamp:      l2Block.Timestamp,
 	}
 
-	batchNum := hotShotBlockNum - etherMan.cfg.GenesisHotShotBlockNumber
-	log.Infof("Creating batch number %d", batchNum)
-
 	*batch = SequencedBatch{
 		BatchNumber:           batchNum,
+		BlockNumber:           l2Block.L1Block,
 		PolygonZkEVMBatchData: newBatchData, // BatchData info
 
 		// Some metadata (in particular: information about the L1 transaction which sequenced this
@@ -731,14 +740,6 @@ func (etherMan *Client) fetchL2Block(ctx context.Context, hotShotBlockNum uint64
 		TxHash:        common.Hash{},
 		Coinbase:      common.Address{},
 		Nonce:         0,
-	}
-	if l1BlockNum != nil {
-		*l1BlockNum = l2Block.L1Block
-	}
-	*prevBatch = state.L2BatchInfo{
-		Number:    batchNum,
-		L1Block:   l2Block.L1Block,
-		Timestamp: l2Block.Timestamp,
 	}
 
 	return nil

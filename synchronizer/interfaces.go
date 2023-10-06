@@ -30,6 +30,7 @@ type stateInterface interface {
 	AddGlobalExitRoot(ctx context.Context, exitRoot *state.GlobalExitRoot, dbTx pgx.Tx) error
 	AddForcedBatch(ctx context.Context, forcedBatch *state.ForcedBatch, dbTx pgx.Tx) error
 	AddBlock(ctx context.Context, block *state.Block, dbTx pgx.Tx) error
+	ContainsBlock(ctx context.Context, blockNum uint64, dbTx pgx.Tx) (bool, error)
 	Reset(ctx context.Context, blockNumber uint64, dbTx pgx.Tx) error
 	GetPreviousBlock(ctx context.Context, offset uint64, dbTx pgx.Tx) (*state.Block, error)
 	GetLastBatchInfo(ctx context.Context, dbTx pgx.Tx) (state.L2BatchInfo, error)

@@ -573,6 +573,20 @@ func (p *PostgresStorage) SetLastBatchNumberSeenOnEthereum(ctx context.Context, 
 	return err
 }
 
+func (p *PostgresStorage) ContainsBlock(ctx context.Context, blockNum uint64, dbTx pgx.Tx) (bool, error) {
+	const getBlockByNumberSQL = `
+		SELECT count(*)
+		  FROM state.block
+		 WHERE block_num = $1`
+	var count uint64
+
+	e := p.getExecQuerier(dbTx)
+	if err := e.QueryRow(ctx, getBlockByNumberSQL, blockNum).Scan(&count); err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // GetLastBatchNumberSeenOnEthereum returns the last batch number stored
 // in the state that represents the last batch number that affected the
 // roll-up in the Ethereum network.
