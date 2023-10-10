@@ -125,6 +125,15 @@ func (p *PostgresStorage) ResetTrustedState(ctx context.Context, batchNum uint64
 // AddBlock adds a new block to the State Store
 func (p *PostgresStorage) AddBlock(ctx context.Context, block *Block, dbTx pgx.Tx) error {
 	e := p.getExecQuerier(dbTx)
+
+	// This operation will both read the state.block table (to check if the block we're adding
+	// already exists) and modify it. These two actions do not happen atomically; without
+	// protection, another transaction may complete and modify the state.block table in between.
+	// Thus, we first need to acquire a lock that prevents concurrent updates to the table.
+	if _, err := e.Exec(ctx, "LOCK TABLE state.block IN EXCLUSIVE MODE"); err != nil {
+		return err
+	}
+
 	_, err := e.Exec(ctx, addBlockSQL, block.BlockNumber, block.BlockHash.String(), block.ParentHash.String(), block.ReceivedAt)
 	return err
 }
