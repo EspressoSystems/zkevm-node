@@ -38,6 +38,11 @@ type ClientSynchronizer struct {
 	cancelCtx          context.CancelFunc
 	genesis            state.Genesis
 	cfg                Config
+
+	// Channel for synchronizing reorgs with the asynchronous preconf task.
+	// The type of the messages sent on this channel is irrelevant. It is used for synchronization
+	// only, not exchange of data. We usually just send `nil` messages.
+	preconfReorg chan interface{}
 }
 
 // NewSynchronizer creates and initializes an instance of Synchronizer
@@ -128,11 +133,21 @@ func (s *ClientSynchronizer) Sync() error {
 	}
 
 	if s.usePreconfirmations() {
+		s.preconfReorg = make(chan interface{})
 		go func() {
 			for {
 				select {
 				case <-s.ctx.Done():
 					return
+				case <-s.preconfReorg:
+					// There's been a reorg and the main task wants to reset the state. Send it a
+					// signal to let it know that we are not actively syncing and are ready for the
+					// state to be reset.
+					s.preconfReorg <- nil
+					// Wait for a signal from the main task that the reset is done.
+					log.Debug("preconf task signaled for reorg, waiting until it is safe to proceed")
+					<-s.preconfReorg
+					log.Debug("resuming preconfirmations syncing after reorg")
 				case <-time.After(s.cfg.PreconfirmationsSyncInterval.Duration):
 					if err = s.syncPreconfirmations(); err != nil {
 						log.Warn("error syncing preconfirmations: ", err)
@@ -464,6 +479,21 @@ func (s *ClientSynchronizer) processBlockRange(blocks []etherman.Block, order ma
 // This function allows reset the state until an specific ethereum block
 func (s *ClientSynchronizer) resetState(blockNumber uint64) error {
 	log.Debug("Reverting synchronization to block: ", blockNumber)
+
+	if s.preconfReorg != nil {
+		// We're about to yank the state out from under the asynchronous preconfirmations task.
+		// Before we do that, we must
+		// 1. Signal the preconf task that we're about to reset the state.
+		s.preconfReorg <- nil
+		// 2. Wait for the preconf task to reach a stable point.
+		<-s.preconfReorg
+		// After we reset the task, we must signal the preconf task one more time to let it know
+		// that it can resume syncing.
+		defer func() {
+			s.preconfReorg <- nil
+		} ()
+	}
+
 	dbTx, err := s.state.BeginStateTransaction(s.ctx)
 	if err != nil {
 		log.Error("error starting a db transaction to reset the state. Error: ", err)
