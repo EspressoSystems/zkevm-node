@@ -364,7 +364,10 @@ func (etherMan *Client) updateGlobalExitRootEvent(ctx context.Context, vLog type
 	gExitRoot.GlobalExitRoot = hash(globalExitRoot.MainnetExitRoot, globalExitRoot.RollupExitRoot)
 
 	if len(*blocks) == 0 || ((*blocks)[len(*blocks)-1].BlockHash != vLog.BlockHash || (*blocks)[len(*blocks)-1].BlockNumber != vLog.BlockNumber) {
-		block := prepareBlock(fullBlock)
+		block, err := prepareBlock(&vLog, fullBlock)
+		if err != nil {
+			return err
+		}
 		block.GlobalExitRoots = append(block.GlobalExitRoots, gExitRoot)
 		*blocks = append(*blocks, block)
 	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
@@ -522,7 +525,7 @@ func (etherMan *Client) GetPreconfirmations(ctx context.Context, prevBatch state
 			return nil, nil, err
 		}
 
-		err = etherMan.appendSequencedBatches(ctx, []SequencedBatch{batch}, batch.BlockNumber, &blocks, &order)
+		err = etherMan.appendSequencedBatches(ctx, []SequencedBatch{batch}, batch.BlockNumber, nil, &blocks, &order)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -553,14 +556,14 @@ func (etherMan *Client) newBlocksEvent(ctx context.Context, prevBatch *state.L2B
 	if err != nil {
 		return fmt.Errorf("error decoding the sequences: %v", err)
 	}
-	err = etherMan.appendSequencedBatches(ctx, sequences, vLog.BlockNumber, blocks, blocksOrder)
+	err = etherMan.appendSequencedBatches(ctx, sequences, vLog.BlockNumber, &vLog, blocks, blocksOrder)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (etherMan *Client) appendSequencedBatches(ctx context.Context, sequences []SequencedBatch, blockNumber uint64, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
+func (etherMan *Client) appendSequencedBatches(ctx context.Context, sequences []SequencedBatch, blockNumber uint64, vLog *types.Log, blocks *[]Block, blocksOrder *map[common.Hash][]Order) error {
 	if len(*blocks) == 0 || (*blocks)[len(*blocks)-1].BlockNumber != blockNumber {
 		// Sanity check: if we got a new L1 block number, it should be increasing.
 		if len(*blocks) > 0 && blockNumber < (*blocks)[len(*blocks)-1].BlockNumber {
@@ -571,7 +574,10 @@ func (etherMan *Client) appendSequencedBatches(ctx context.Context, sequences []
 		if err != nil {
 			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", blockNumber, err)
 		}
-		block := prepareBlock(fullBlock)
+		block, err := prepareBlock(vLog, fullBlock)
+		if err != nil {
+			return err
+		}
 		block.SequencedBatches = append(block.SequencedBatches, sequences)
 		*blocks = append(*blocks, block)
 	} else {
@@ -788,7 +794,10 @@ func (etherMan *Client) verifyBatchesTrustedAggregatorEvent(ctx context.Context,
 		if err != nil {
 			return fmt.Errorf("error getting hashParent. BlockNumber: %d. Error: %w", vLog.BlockNumber, err)
 		}
-		block := prepareBlock(fullBlock)
+		block, err := prepareBlock(&vLog, fullBlock)
+		if err != nil {
+			return err
+		}
 		block.VerifiedBatches = append(block.VerifiedBatches, trustedVerifyBatch)
 		*blocks = append(*blocks, block)
 	} else if (*blocks)[len(*blocks)-1].BlockHash == vLog.BlockHash && (*blocks)[len(*blocks)-1].BlockNumber == vLog.BlockNumber {
@@ -805,13 +814,25 @@ func (etherMan *Client) verifyBatchesTrustedAggregatorEvent(ctx context.Context,
 	return nil
 }
 
-func prepareBlock(fullBlock *types.Block) Block {
+// Capture relevant information about an L1 block from which we just processed an event.
+//
+// Optionally, the `vLog` containing the event may be provided, in which case the hash of
+// `fullBlock` will be compared against the `BlockHash` from the log, and an error will be raised if
+// they do not match. This can happen in the event of an L1 reorg.
+//
+// When processing events that originated off-chain (such as preconfirmations from the Espresso
+// Sequencer) and therefore are not affected by L1 reorgs, `vLog` may be `nil`.
+func prepareBlock(vLog *types.Log, fullBlock *types.Block) (Block, error) {
 	var block Block
+
+	if vLog != nil && vLog.BlockHash != fullBlock.Hash() {
+		return block, fmt.Errorf("possible reorg: block hash %v does not match event log %v", fullBlock.Hash(), vLog)
+	}
 	block.BlockNumber = fullBlock.Number().Uint64()
 	block.BlockHash = fullBlock.Hash()
 	block.ParentHash = fullBlock.ParentHash()
 	block.ReceivedAt = time.Unix(int64(fullBlock.Time()), 0)
-	return block
+	return block, nil
 }
 
 func hash(data ...[32]byte) [32]byte {
