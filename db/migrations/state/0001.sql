@@ -41,6 +41,7 @@ CREATE TABLE state.virtual_batch
     tx_hash   VARCHAR,
     coinbase  VARCHAR,
     block_num BIGINT NOT NULL REFERENCES state.block (block_num) ON DELETE CASCADE
+    seen_at BIGINT NOT NULL REFERENCES state.block (block_num) ON DELETE CASCADE
 );
 
 CREATE TABLE state.verified_batch
