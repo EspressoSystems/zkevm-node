@@ -58,6 +58,7 @@ type VirtualBatch struct {
 	Coinbase      common.Address
 	SequencerAddr common.Address
 	BlockNumber   uint64
+	SeenAt        uint64
 }
 
 // Sequence represents the sequence interval

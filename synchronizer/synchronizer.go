@@ -446,7 +446,7 @@ func (s *ClientSynchronizer) processBlockRange(blocks []etherman.Block, order ma
 		for _, element := range order[blocks[i].BlockHash] {
 			switch element.Name {
 			case etherman.SequenceBatchesOrder:
-				err = s.processSequenceBatches(blocks[i].SequencedBatches[element.Pos], dbTx)
+				err = s.processSequenceBatches(blocks[i].SequencedBatches[element.Pos], dbTx, blocks[i].BlockNumber)
 				if err != nil {
 					return err
 				}
@@ -491,7 +491,7 @@ func (s *ClientSynchronizer) resetState(blockNumber uint64) error {
 		// that it can resume syncing.
 		defer func() {
 			s.preconfReorg <- nil
-		} ()
+		}()
 	}
 
 	dbTx, err := s.state.BeginStateTransaction(s.ctx)
@@ -635,7 +635,7 @@ func (s *ClientSynchronizer) checkTrustedState(batch state.Batch, tBatch *state.
 	return false
 }
 
-func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.SequencedBatch, dbTx pgx.Tx) error {
+func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.SequencedBatch, dbTx pgx.Tx, batchesSeenAtBlock uint64) error {
 	if len(sequencedBatches) == 0 {
 		log.Warn("Empty sequencedBatches array detected, ignoring...")
 		return nil
@@ -683,10 +683,10 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 			}
 		}
 
-
 		virtualBatch := state.VirtualBatch{
 			BatchNumber:   sbatch.BatchNumber,
 			TxHash:        sbatch.TxHash,
+			SeenAt:        batchesSeenAtBlock,
 			Coinbase:      sbatch.Coinbase,
 			BlockNumber:   sbatch.BlockNumber,
 			SequencerAddr: sbatch.SequencerAddr,
