@@ -641,46 +641,17 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		return nil
 	}
 
+	if err := s.ensureBlockExists(dbTx, batchesSeenAtBlock); err != nil {
+		return err
+	}
+
 	for _, sbatch := range sequencedBatches {
 		// Ensure the L1 origin for this batch is in the database. Since the L1 origin assigned by
 		// HotShot is not necessarily the same as an L1 block which we added to the database as a
 		// result of receiving a contract event, it might not be.
 		blockNumber := sbatch.BlockNumber
-		exists, err := s.state.ContainsBlock(s.ctx, blockNumber, dbTx)
-		if err != nil {
-			log.Errorf("error fetching L1 block %d from db: %v", blockNumber, err)
-			rollbackErr := dbTx.Rollback(s.ctx)
-			if rollbackErr != nil {
-				log.Fatalf("error rolling back state. BlockNumber: %d, rollbackErr: %s, error: %w", blockNumber, rollbackErr.Error(), err)
-			}
+		if err := s.ensureBlockExists(dbTx, blockNumber); err != nil {
 			return err
-		}
-		if !exists {
-			header, err := s.etherMan.HeaderByNumber(s.ctx, big.NewInt(int64(blockNumber)))
-			if err != nil {
-				log.Errorf("error fetching L1 block %d: %v", blockNumber, err)
-				rollbackErr := dbTx.Rollback(s.ctx)
-				if rollbackErr != nil {
-					log.Fatalf("error rolling back state. BlockNumber: %d, rollbackErr: %s, error: %w", blockNumber, rollbackErr.Error(), err)
-				}
-				return err
-			}
-			b := state.Block{
-				BlockNumber: blockNumber,
-				BlockHash:   header.Hash(),
-				ParentHash:  header.ParentHash,
-				ReceivedAt:  time.Unix(int64(header.Time), 0),
-			}
-			log.Infof("L1 block %d does not already exist, adding to database", blockNumber)
-			err = s.state.AddBlock(s.ctx, &b, dbTx)
-			if err != nil {
-				log.Errorf("error storing block. BlockNumber: %d, error: %w", blockNumber, err)
-				rollbackErr := dbTx.Rollback(s.ctx)
-				if rollbackErr != nil {
-					log.Fatalf("error rolling back state to store block. BlockNumber: %d, rollbackErr: %s, error : %w", blockNumber, rollbackErr.Error(), err)
-				}
-				return err
-			}
 		}
 
 		virtualBatch := state.VirtualBatch{
@@ -793,6 +764,47 @@ func (s *ClientSynchronizer) processSequenceBatches(sequencedBatches []etherman.
 		log.Errorf("error getting adding sequence. error: %w", err)
 		return err
 	}
+	return nil
+}
+
+func (s *ClientSynchronizer) ensureBlockExists(dbTx pgx.Tx, blockNumber uint64) error {
+	exists, err := s.state.ContainsBlock(s.ctx, blockNumber, dbTx)
+	if err != nil {
+		log.Errorf("error fetching L1 block %d from db: %v", blockNumber, err)
+		rollbackErr := dbTx.Rollback(s.ctx)
+		if rollbackErr != nil {
+			log.Fatalf("error rolling back state. BlockNumber: %d, rollbackErr: %s, error: %w", blockNumber, rollbackErr.Error(), err)
+		}
+		return err
+	}
+	if !exists {
+		header, err := s.etherMan.HeaderByNumber(s.ctx, big.NewInt(int64(blockNumber)))
+		if err != nil {
+			log.Errorf("error fetching L1 block %d: %v", blockNumber, err)
+			rollbackErr := dbTx.Rollback(s.ctx)
+			if rollbackErr != nil {
+				log.Fatalf("error rolling back state. BlockNumber: %d, rollbackErr: %s, error: %w", blockNumber, rollbackErr.Error(), err)
+			}
+			return err
+		}
+		b := state.Block{
+			BlockNumber: blockNumber,
+			BlockHash:   header.Hash(),
+			ParentHash:  header.ParentHash,
+			ReceivedAt:  time.Unix(int64(header.Time), 0),
+		}
+		log.Infof("L1 block %d does not already exist, adding to database", blockNumber)
+		err = s.state.AddBlock(s.ctx, &b, dbTx)
+		if err != nil {
+			log.Errorf("error storing block. BlockNumber: %d, error: %w", blockNumber, err)
+			rollbackErr := dbTx.Rollback(s.ctx)
+			if rollbackErr != nil {
+				log.Fatalf("error rolling back state to store block. BlockNumber: %d, rollbackErr: %s, error : %w", blockNumber, rollbackErr.Error(), err)
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
