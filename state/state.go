@@ -1348,6 +1348,7 @@ func (s *State) SetGenesis(ctx context.Context, block Block, genesis Genesis, db
 		TxHash:      ZeroHash,
 		Coinbase:    ZeroAddress,
 		BlockNumber: block.BlockNumber,
+		SeenAt:      block.BlockNumber,
 	}
 	err = s.AddVirtualBatch(ctx, virtualBatch, dbTx)
 	if err != nil {
