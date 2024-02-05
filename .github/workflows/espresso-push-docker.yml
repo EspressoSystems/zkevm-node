@@ -31,7 +31,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate docker metadata
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         id: zkevm-node
         with:
           images: ghcr.io/${{ github.repository_owner }}/zkevm-node
@@ -46,7 +46,7 @@ jobs:
           labels: ${{ steps.zkevm-node.outputs.labels }}
 
       - name: Generate docker metadata
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         id: zkprover-mock
         with:
           images: ghcr.io/${{ github.repository_owner }}/zkprover-mock
